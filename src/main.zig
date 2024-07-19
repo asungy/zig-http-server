@@ -4,12 +4,16 @@ const net = std.net;
 pub fn main() !void {
     const stdout = std.io.getStdOut().writer();
 
-    const address = try net.Address.resolveIp("127.0.0.1", 4221);
+    const addr = "127.0.0.1";
+    const port = 4221;
+    const address = try net.Address.resolveIp(addr, port);
     var listener = try address.listen(.{
         .reuse_address = true,
     });
     defer listener.deinit();
+    try stdout.print("Listening on {s}:{d}", .{addr, port});
 
-    _ = try listener.accept();
-    try stdout.print("client connected!", .{});
+    const bytes = "HTTP/1.1 200 OK\r\n\r\n";
+    var conn = try listener.accept();
+    try conn.stream.writer().writeAll(bytes);
 }
