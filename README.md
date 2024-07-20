@@ -36,3 +36,8 @@ Note: This section is for stages 2 and beyond.
    `src/main.zig`.
 1. Commit your changes and run `git push origin master` to submit your solution
    to CodeCrafters. Test output will be streamed to your terminal.
+
+# Debug test binary
+```shell
+zig test src/request.zig -femit-bin=zig-out/test/request --test-no-exec -fno-strip
+```
