@@ -1,4 +1,5 @@
 const std = @import("std");
+const Request = @import("http/request.zig").Request;
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
@@ -36,14 +37,13 @@ pub const Server = struct {
         var buffer: [1024]u8 = undefined;
         _ = try conn.stream.reader().read(&buffer);
 
-        try conn.stream.writer().writeAll("HTTP/1.1 200 OK\r\n\r\n");
+        const request = try Request.parse(&buffer);
 
-        // const url = get_url(&buffer).?;
-        // if (std.mem.eql(u8, url, "/")) {
-        //     try conn.stream.writer().writeAll("HTTP/1.1 200 OK\r\n\r\n");
-        // } else {
-        //     try conn.stream.writer().writeAll("HTTP/1.1 404 Not Found\r\n\r\n");
-        // }
+        if (std.mem.eql(u8, request.target, "/")) {
+            try conn.stream.writer().writeAll("HTTP/1.1 200 OK\r\n\r\n");
+        } else {
+            try conn.stream.writer().writeAll("HTTP/1.1 404 Not Found\r\n\r\n");
+        }
     }
 };
 
