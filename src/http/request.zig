@@ -1,7 +1,6 @@
 const std = @import("std");
 const http = @import("http.zig");
 
-
 pub const ParseError = error {
     NoMethod,
     NoTarget,
