@@ -37,3 +37,13 @@ pub const Status = enum {
         };
     }
 };
+
+pub const ContentType = enum {
+    TextPlain,
+
+    pub fn toString(self: ContentType) []const u8 {
+        return switch (self) {
+            ContentType.TextPlain => "text/plain",
+        };
+    }
+};
