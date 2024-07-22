@@ -1,24 +1,27 @@
 const std = @import("std");
 const http = @import("http.zig");
+const Allocator = std.mem.Allocator;
 
 pub const Response = struct {
-    allocator: std.mem.Allocator,
+    arena: std.heap.ArenaAllocator,
     version: http.Version,
     status: http.Status,
     headers: std.StringHashMap([]const u8),
     body: ?[]const u8,
 
     pub fn init(allocator: std.mem.Allocator) !Response {
+        const arena = std.heap.ArenaAllocator.init(allocator);
         return Response {
-            .allocator = allocator,
-            .version   = http.Version.Http_1_1,
-            .status    = http.Status.OK,
-            .headers   = std.StringHashMap([]const u8).init(allocator),
-            .body      = null,
+            .arena = arena,
+            .version = http.Version.Http_1_1,
+            .status  = http.Status.OK,
+            .headers = std.StringHashMap([]const u8).init(allocator),
+            .body = null,
         };
     }
 
     pub fn deinit(self: *Response) void {
+        _ = self.arena.reset(.free_all);
         self.headers.deinit();
     }
 
@@ -27,7 +30,8 @@ pub const Response = struct {
     }
 
     pub fn addHeader(self: *Response, key: []const u8, value: []const u8) !void {
-        const buffer = try self.allocator.alloc(u8, value.len);
+        const allocator = self.arena.allocator();
+        const buffer = try allocator.alloc(u8, value.len);
         std.mem.copyForwards(u8, buffer, value);
         try self.headers.put(key, buffer);
     }
