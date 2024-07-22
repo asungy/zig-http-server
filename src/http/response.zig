@@ -3,22 +3,25 @@ const http = @import("http.zig");
 const Allocator = std.mem.Allocator;
 
 pub const Response = struct {
+    arena: std.heap.ArenaAllocator,
     version: http.Version,
     status: http.Status,
     headers: std.StringHashMap([]const u8),
     body: ?[]const u8,
 
-    pub fn init(allocator: Allocator) Response {
+    pub fn init() !Response {
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         return Response {
+            .arena = arena,
             .version = http.Version.Http_1_1,
             .status  = http.Status.OK,
-            .headers = std.StringHashMap([]const u8).init(allocator),
+            .headers = std.StringHashMap([]const u8).init(arena.allocator()),
             .body = null,
         };
     }
 
     pub fn deinit(self: *Response) void {
-        self.headers.deinit();
+        self.arena.deinit();
     }
 
     pub fn setStatus(self: *Response, status: http.Status) void {
@@ -26,7 +29,10 @@ pub const Response = struct {
     }
 
     pub fn addHeader(self: *Response, key: []const u8, value: []const u8) !void {
-        try self.headers.put(key, value);
+        const allocator = self.arena.allocator();
+        const buffer = try allocator.alloc(u8, value.len);
+        std.mem.copyForwards(u8, buffer, value);
+        try self.headers.put(key, buffer);
     }
 
     pub fn setContentType(self: *Response, content_type: http.ContentType) !void {
@@ -45,8 +51,7 @@ pub const Response = struct {
 };
 
 test "successfully constructing Response struct" {
-    const allocator = std.testing.allocator;
-    var response = Response.init(allocator);
+    var response = try Response.init();
     defer response.deinit();
 
     try response.setContentLength(42);
