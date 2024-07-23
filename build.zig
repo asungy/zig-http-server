@@ -39,9 +39,14 @@ fn addTests(b: *std.Build) void {
     };
 
     for (test_files) |test_file| {
+        var it = std.mem.split(u8, std.fs.path.basename(test_file), ".");
+        const name = it.next() orelse "unknown-test";
+
         const unit_tests = b.addTest(.{
+            .name = name,
             .root_source_file = b.path(test_file),
             .target = b.resolveTargetQuery(.{}),
+            .optimize = .Debug,
         });
 
         const run_unit_tests = b.addRunArtifact(unit_tests);
