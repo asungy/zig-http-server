@@ -41,6 +41,7 @@ pub const Response = struct {
     }
 
     pub fn setContentLength(self: *Response, size: u16) !void {
+        // TODO: Need to address length issue.
         var buffer: [2]u8 = [_]u8{0} ** 2;
         _ = std.fmt.formatIntBuf(&buffer, size, 10, .lower, .{});
         try self.addHeader("Content-Length", &buffer);

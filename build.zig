@@ -1,9 +1,8 @@
 const std = @import("std");
 
-// Learn more about this file here: https://ziglang.org/learn/build-system
-pub fn build(b: *std.Build) void {
+fn addExecutable(b: *std.Build) void {
     const exe = b.addExecutable(.{
-        .name = "zig",
+        .name = "http_server",
         .root_source_file = b.path("src/main.zig"),
         .target = b.standardTargetOptions(.{}),
         .optimize = b.standardOptimizeOption(.{}),
@@ -30,4 +29,27 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
+}
+
+fn addTests(b: *std.Build) void {
+    const test_step = b.step("test", "Run unit tests");
+    const test_files = [_][]const u8{
+        "src/http/response.zig",
+        "src/http/request.zig",
+    };
+
+    for (test_files) |test_file| {
+        const unit_tests = b.addTest(.{
+            .root_source_file = b.path(test_file),
+            .target = b.resolveTargetQuery(.{}),
+        });
+
+        const run_unit_tests = b.addRunArtifact(unit_tests);
+        test_step.dependOn(&run_unit_tests.step);
+    }
+}
+
+pub fn build(b: *std.Build) void {
+    addExecutable(b);
+    addTests(b);
 }
