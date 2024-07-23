@@ -65,11 +65,27 @@ pub const Response = struct {
     }
 
     pub fn setBody(self: *Response, body: []const u8) !void {
-        self.body = body;
+        const allocator = self.arena.allocator();
+        const buffer = try allocator.alloc(u8, body.len);
+        std.mem.copyForwards(u8, buffer, body);
+        self.body = buffer;
+        try self.setContentLength(@intCast(body.len));
     }
 };
 
 test "successfully constructing Response struct" {
+    var response = try Response.init(std.testing.allocator);
+    defer response.deinit();
+
+    try response.setContentType(http.ContentType.TextPlain);
+    const contentType = response.headers.get("Content-Type").?;
+    try std.testing.expect(std.mem.eql(u8, contentType, http.ContentType.TextPlain.toString()));
+
+    try response.setBody("Hello World");
+    try std.testing.expect(std.mem.eql(u8, response.body.?, "Hello World"));
+
+    const contentLength = response.headers.get("Content-Length").?;
+    try std.testing.expect(std.mem.eql(u8, contentLength, "11"));
 }
 
 test "one-digit content length" {

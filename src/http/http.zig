@@ -24,16 +24,19 @@ pub const Version = enum {
 
 pub const Status = enum {
     OK,
+    NotFound,
 
     pub fn code(self: Status) u16 {
         return switch (self) {
-            Status.OK => 200,
+            Status.OK       => 200,
+            Status.NotFound => 404,
         };
     }
 
     pub fn toString(self: Status) []const u8 {
         return switch (self) {
-            Status.OK => "OK",
+            Status.OK       => "OK",
+            Status.NotFound => "Not Found",
         };
     }
 };
