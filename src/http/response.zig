@@ -61,12 +61,21 @@ pub const Response = struct {
         try self.setContentLength(@intCast(body.len));
     }
 
-    pub fn toBytes(self: *Response, allocator: std.mem.Allocator) ![]const u8 {
+    pub fn serialize(self: *Response, allocator: std.mem.Allocator) ![]const u8 {
         const statusLine = try self.statusLineBytes(allocator);
         defer allocator.free(statusLine);
 
-        const buffer = try allocator.alloc(u8, statusLine.len);
+        const headers = try self.headersBytes(allocator);
+        defer allocator.free(headers);
+
+        // TODO: Error handling for optional.
+        const buffer = try allocator.alloc(u8, statusLine.len + headers.len + self.body.?.len);
+        var counter: usize = 0;
         std.mem.copyForwards(u8, buffer, statusLine);
+        counter += statusLine.len;
+        std.mem.copyForwards(u8, buffer[counter..], headers);
+        counter += headers.len;
+        std.mem.copyForwards(u8, buffer[counter..], self.body.?);
 
         return buffer;
     }
@@ -105,13 +114,43 @@ pub const Response = struct {
 
         return buffer;
     }
-    //
-    // fn headersBytes(self: *Response, allocator: std.mem.Allocator) ![]const u8 {
-    //
-    // }
+
+    fn headersBytes(self: *Response, allocator: std.mem.Allocator) ![]const u8 {
+        var it = self.headers.iterator();
+        var size: usize = 0;
+        const delim = ": ";
+        const crlf = "\r\n";
+        // Calculating buffer size.
+        while (it.next()) |kv| {
+             size += kv.key_ptr.len + delim.len + kv.value_ptr.len + crlf.len;
+        }
+        size += crlf.len;
+        const buffer = try allocator.alloc(u8, size);
+
+        // Copying headers to buffer.
+        it = self.headers.iterator();
+        var counter: usize = 0;
+        while (it.next()) |kv| {
+            std.mem.copyForwards(u8, buffer[counter..], kv.key_ptr.*);
+            counter += kv.key_ptr.len;
+
+            std.mem.copyForwards(u8, buffer[counter..], delim);
+            counter += delim.len;
+
+            std.mem.copyForwards(u8, buffer[counter..], kv.value_ptr.*);
+            counter += kv.value_ptr.len;
+
+            std.mem.copyForwards(u8, buffer[counter..], crlf);
+            counter += crlf.len;
+        }
+        std.mem.copyForwards(u8, buffer[counter..], crlf);
+        counter += crlf.len;
+
+        return buffer;
+    }
 };
 
-test "Response struct to bytes" {
+test "Response struct serialization" {
     var response = try Response.init(std.testing.allocator);
     defer response.deinit();
 
@@ -125,12 +164,10 @@ test "Response struct to bytes" {
     const contentLength = response.headers.get("Content-Length").?;
     try std.testing.expect(std.mem.eql(u8, contentLength, "11"));
 
-    const bytes = try response.toBytes(std.testing.allocator);
+    const bytes = try response.serialize(std.testing.allocator);
     defer std.testing.allocator.free(bytes);
 
-    std.log.warn("{s}", .{bytes});
-    // try std.testing.expect(std.mem.eql(u8, bytes, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 11\r\n\r\nHello World"));
-    try std.testing.expect(std.mem.eql(u8, bytes, "HTTP/1.1 200 OK\r\n"));
+    try std.testing.expect(std.mem.eql(u8, bytes, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 11\r\n\r\nHello World"));
 }
 
 test "setting content length" {
