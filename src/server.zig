@@ -1,9 +1,10 @@
 const std = @import("std");
 const Request = @import("http/request.zig").Request;
+const Response = @import("http/response.zig").Response;
 const print = std.debug.print;
 const Allocator = std.mem.Allocator;
 
-const RouteHandler = *const fn(request: []const u8) void;
+const RouteHandler = *const fn(request: []const u8) Response;
 pub const Server = struct {
     address: []const u8,
     port: u16,

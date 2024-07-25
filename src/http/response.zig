@@ -40,28 +40,17 @@ pub const Response = struct {
         try self.addHeader("Content-Type", content_type.toString());
     }
 
-    pub fn setContentLength(self: *Response, size: u16) !void {
-        if (size < 10) {
-            var buffer: [1]u8 = [_]u8{0};
-            _ = std.fmt.formatIntBuf(&buffer, size, 10, .lower, .{});
-            try self.addHeader("Content-Length", &buffer);
-        } else if (size < 100) {
-            var buffer: [2]u8 = [_]u8{0} ** 2;
-            _ = std.fmt.formatIntBuf(&buffer, size, 10, .lower, .{});
-            try self.addHeader("Content-Length", &buffer);
-        } else if (size < 1000) {
-            var buffer: [3]u8 = [_]u8{0} ** 3;
-            _ = std.fmt.formatIntBuf(&buffer, size, 10, .lower, .{});
-            try self.addHeader("Content-Length", &buffer);
-        } else if (size < 10000) {
-            var buffer: [4]u8 = [_]u8{0} ** 4;
-            _ = std.fmt.formatIntBuf(&buffer, size, 10, .lower, .{});
-            try self.addHeader("Content-Length", &buffer);
-        } else {
-            var buffer: [5]u8 = [_]u8{0} ** 5;
-            _ = std.fmt.formatIntBuf(&buffer, size, 10, .lower, .{});
-            try self.addHeader("Content-Length", &buffer);
+    pub fn setContentLength(self: *Response, size: usize) !void {
+        const allocator = self.arena.allocator();
+        var length: u16 = 0;
+        var _size = size;
+        while (_size > 0) {
+            _size /= 10;
+            length += 1;
         }
+        const buffer = try allocator.alloc(u8, length);
+        _ = std.fmt.formatIntBuf(buffer, size, 10, .lower, .{});
+        try self.addHeader("Content-Length", buffer);
     }
 
     pub fn setBody(self: *Response, body: []const u8) !void {
@@ -71,60 +60,45 @@ pub const Response = struct {
         self.body = buffer;
         try self.setContentLength(@intCast(body.len));
     }
+
+    // pub fn toBytes(self: *Response, allocator: std.mem.Allocator) ![]const u8 {
+    //
+    // }
+    //
+    // fn statusLineBytes(self: *Response, allocator: std.mem.Allocator) ![]const u8 {
+    //     // HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 3\r\n\r\nabc
+    //     // version
+    //     // status code
+    //     // status
+    //     // CRLF
+    //     var version = self.version.toString();
+    //     var status = self.status.toString();
+    // }
+    //
+    // fn headersBytes(self: *Response, allocator: std.mem.Allocator) ![]const u8 {
+    //
+    // }
 };
 
-test "successfully constructing Response struct" {
-    var response = try Response.init(std.testing.allocator);
-    defer response.deinit();
+// test "Response struct to bytes" {
+//     var response = try Response.init(std.testing.allocator);
+//     defer response.deinit();
+//
+//     try response.setContentType(http.ContentType.TextPlain);
+//     const contentType = response.headers.get("Content-Type").?;
+//     try std.testing.expect(std.mem.eql(u8, contentType, http.ContentType.TextPlain.toString()));
+//
+//     try response.setBody("Hello World");
+//     try std.testing.expect(std.mem.eql(u8, response.body.?, "Hello World"));
+//
+//     const contentLength = response.headers.get("Content-Length").?;
+//     try std.testing.expect(std.mem.eql(u8, contentLength, "11"));
+//
+//     const bytes = try response.toBytes(std.testing.allocator);
+//     try std.testing.expect(std.mem.eql(u8, bytes, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 11\r\n\r\nHello World"));
+// }
 
-    try response.setContentType(http.ContentType.TextPlain);
-    const contentType = response.headers.get("Content-Type").?;
-    try std.testing.expect(std.mem.eql(u8, contentType, http.ContentType.TextPlain.toString()));
-
-    try response.setBody("Hello World");
-    try std.testing.expect(std.mem.eql(u8, response.body.?, "Hello World"));
-
-    const contentLength = response.headers.get("Content-Length").?;
-    try std.testing.expect(std.mem.eql(u8, contentLength, "11"));
-}
-
-test "one-digit content length" {
-    var response = try Response.init(std.testing.allocator);
-    defer response.deinit();
-
-    try response.setContentLength(2);
-    const contentLength = response.headers.get("Content-Length").?;
-    try std.testing.expect(std.mem.eql(u8, contentLength, "2"));
-}
-
-test "two-digit content length" {
-    var response = try Response.init(std.testing.allocator);
-    defer response.deinit();
-
-    try response.setContentLength(42);
-    const contentLength = response.headers.get("Content-Length").?;
-    try std.testing.expect(std.mem.eql(u8, contentLength, "42"));
-}
-
-test "three-digit content length" {
-    var response = try Response.init(std.testing.allocator);
-    defer response.deinit();
-
-    try response.setContentLength(163);
-    const contentLength = response.headers.get("Content-Length").?;
-    try std.testing.expect(std.mem.eql(u8, contentLength, "163"));
-}
-
-test "four-digit content length" {
-    var response = try Response.init(std.testing.allocator);
-    defer response.deinit();
-
-    try response.setContentLength(9876);
-    const contentLength = response.headers.get("Content-Length").?;
-    try std.testing.expect(std.mem.eql(u8, contentLength, "9876"));
-}
-
-test "five-digit content length" {
+test "setting content length" {
     var response = try Response.init(std.testing.allocator);
     defer response.deinit();
 

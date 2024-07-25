@@ -20,6 +20,12 @@ pub const Version = enum {
             return null;
         };
     }
+
+    pub fn toString(self: Version) []const u8 {
+        return switch (self) {
+            Version.Http_1_1 => "HTTP/1.1",
+        };
+    }
 };
 
 pub const Status = enum {
