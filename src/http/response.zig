@@ -68,14 +68,16 @@ pub const Response = struct {
         const headers = try self.headersBytes(allocator);
         defer allocator.free(headers);
 
-        // TODO: Error handling for optional.
-        const buffer = try allocator.alloc(u8, statusLine.len + headers.len + self.body.?.len);
+        const bodyLength = if (self.body) |body| body.len else 0;
+        const buffer = try allocator.alloc(u8, statusLine.len + headers.len + bodyLength);
         var counter: usize = 0;
         std.mem.copyForwards(u8, buffer, statusLine);
         counter += statusLine.len;
         std.mem.copyForwards(u8, buffer[counter..], headers);
         counter += headers.len;
-        std.mem.copyForwards(u8, buffer[counter..], self.body.?);
+        if (bodyLength > 0) {
+            std.mem.copyForwards(u8, buffer[counter..], self.body.?);
+        }
 
         return buffer;
     }
@@ -168,6 +170,23 @@ test "Response struct serialization" {
     defer std.testing.allocator.free(bytes);
 
     try std.testing.expect(std.mem.eql(u8, bytes, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 11\r\n\r\nHello World"));
+}
+
+test "Response serialization without body" {
+    var response = try Response.init(std.testing.allocator);
+    defer response.deinit();
+
+    response.setStatus(http.Status.NotFound);
+    try std.testing.expect(response.status == http.Status.NotFound);
+
+    try response.setContentType(http.ContentType.TextPlain);
+    const contentType = response.headers.get("Content-Type").?;
+    try std.testing.expect(std.mem.eql(u8, contentType, http.ContentType.TextPlain.toString()));
+
+    const bytes = try response.serialize(std.testing.allocator);
+    defer std.testing.allocator.free(bytes);
+
+    try std.testing.expect(std.mem.eql(u8, bytes, "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\n"));
 }
 
 test "setting content length" {
