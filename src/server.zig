@@ -6,13 +6,11 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const print = std.debug.print;
 
-const RouteHandler = *const fn(request: Request) Response;
 pub const Server = struct {
     arena: std.heap.ArenaAllocator,
     address: []const u8,
     port: u16,
     server: std.net.Server,
-    routes: std.StringHashMap(RouteHandler),
 
     pub fn init(address_name: []const u8, port: u16, allocator: Allocator) !Server {
         const arena = std.heap.ArenaAllocator.init(allocator);
@@ -22,7 +20,6 @@ pub const Server = struct {
             .address = address_name,
             .port = port,
             .server = try address.listen(.{ .reuse_address = true }),
-            .routes = std.StringHashMap(RouteHandler).init(allocator),
         };
     }
 
@@ -30,10 +27,6 @@ pub const Server = struct {
         _ = self.arena.reset(.free_all);
         self.server.deinit();
         self.routes.deinit();
-    }
-
-    pub fn addRoute(self: Server, route: []const u8, handler: RouteHandler) !void {
-        try self.routes.put(route, handler);
     }
 
     pub fn run(self: *Server) !void {
