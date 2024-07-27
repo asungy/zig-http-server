@@ -40,6 +40,6 @@ pub const Request = struct {
 
 test "http request parses into Request struct" {
     const request = try Request.parse("GET /echo/abc HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/7.64.1\r\nAccept: */*\r\n\r\n");
-    try std.testing.expect(request.method == http.Method.GET);
-    try std.testing.expect(std.mem.eql(u8, request.target, "/echo/abc"));
+    try std.testing.expectEqual(http.Method.GET, request.method);
+    try std.testing.expectEqualStrings("/echo/abc", request.target);
 }

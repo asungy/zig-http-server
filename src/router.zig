@@ -4,47 +4,109 @@ const Response = @import("http/response.zig").Response;
 
 const Allocator = std.mem.Allocator;
 
-const RouteHandler = *const fn(request: Request) Response;
-const Router = struct {
-    routes: std.ArrayList(Route),
+const RouteHandler = *const fn(request: Request) RouteTrie.Error!Response;
+const RouteTrie = struct {
+    root: Node,
 
-    const Route = struct {
-        captureMap: std.StringHashMap([]u8),
-        handler: RouteHandler,
+    const Error = error {
+        // All URLs must begin with a forward slash.
+        DoesNotStartWithSlash,
+    };
 
-        pub fn init(_: []const u8, handler: RouteHandler, allocator: Allocator) Route {
-            const captureMap = std.StringHashMap([]u8).init(allocator);
+    const Node = struct {
+        key: []const u8,
+        kind: Node.Kind,
+        children: std.hash_map.AutoHashMap(u8, *Node),
+        handler: ?RouteHandler,
 
-            // TODO: Do parsing of url here.
+        const delim = "/";
 
-            return Route {
-                .captureMap = captureMap,
+        const Kind = enum {
+            Delimiter,   // Example: `/`
+            Static,      // Example: `def` in `/abc/def/ghi`
+            StaticTerm,  // Example: `ghi` in `/abc/def/ghi`
+            Capture,     // Example: `/abc/{id}/name`
+            CaptureTerm, // Example: `/abc/{id}`
+        };
+
+        fn init(key: []const u8, kind: Node.Kind, handler: ?RouteHandler, allocator: Allocator) Node {
+            return Node {
+                .key = key,
+                .kind = kind,
+                .children = std.hash_map.AutoHashMap(u8, *Node).init(allocator),
                 .handler = handler,
             };
         }
 
-        pub fn deinit(self: Route) void {
-            self.captureMap.deinit();
+        fn deinit(self: *Node) void {
+            self.children.deinit();
+        }
+
+        fn findNextMatchingNode(self: *Node, target: []const u8) ?*Node {
+            if (target.len == 0) return null;
+
+            var prev: ?*Node = null;
+            var current: ?*Node = self;
+            var c = target[0];
+            for (target[1..]) |next| {
+                const child = current.?.children.get(next);
+                if (child == null or current.?.key != c) return prev;
+
+                prev = current;
+                current = child;
+                c = next;
+            }
+
+            return current;
         }
     };
 
-    pub fn init(allocator: Allocator) Router {
-        return Router {
-            .routes = std.ArrayList(Route).init(allocator),
+    fn init(rootHandler: ?RouteHandler, allocator: Allocator) RouteTrie {
+        const kind = if (rootHandler == null) Node.Kind.CharTerm else Node.Kind.Char;
+        return RouteTrie {
+            .root = Node.init(kind, rootHandler, allocator),
         };
     }
 
-    pub fn deinit(self: *Router) void {
-        self.routes.deinit();
+    fn deinit(_: RouteTrie) void {
+        // TODO: Implement me
     }
 
+    fn addRoute(self: RouteTrie, key: []const u8, _: RouteHandler) Error!void {
+        if (key.len == 0 or key[0] != self.rootKey) {
+            return Error.DoesNotStartWithSlash;
+        }
+        // TODO: Implement me
+    }
 };
 
-test "parsing route" {
+test "route trie node" {
+    const Node = RouteTrie.Node;
+    var nodeRoot = Node.init('/', Node.Kind.Char, null, std.testing.allocator); defer nodeRoot.deinit();
+    var nodeE    = Node.init('e', Node.Kind.Char, null, std.testing.allocator); defer nodeE.deinit();
+    var nodeC    = Node.init('c', Node.Kind.Char, null, std.testing.allocator); defer nodeC.deinit();
+    var nodeH    = Node.init('h', Node.Kind.Char, null, std.testing.allocator); defer nodeH.deinit();
+    var nodeO    = Node.init('o', Node.Kind.Char, null, std.testing.allocator); defer nodeO.deinit();
 
-}
+    try nodeRoot.children.put('e', &nodeE);
+    try nodeE.children.put('c', &nodeC);
+    try nodeC.children.put('h', &nodeH);
+    try nodeH.children.put('o', &nodeO);
 
-test "adding route to router" {
-    var router = Router.init(std.testing.allocator);
-    defer router.deinit();
+    try std.testing.expectEqual(null, nodeRoot.findNextMatchingNode("aoeustnh"));
+
+    var target: []const u8 = "/e";
+    var expected = &nodeE;
+    var actual   = nodeRoot.findNextMatchingNode(target).?;
+    try std.testing.expectEqual(expected, actual);
+
+    target   = "/echo";
+    expected = &nodeO;
+    actual   = nodeRoot.findNextMatchingNode(target).?;
+    try std.testing.expectEqual(expected, actual);
+
+    target   = "/echolonger";
+    expected = &nodeO;
+    actual   = nodeRoot.findNextMatchingNode(target).?;
+    try std.testing.expectEqual(expected, actual);
 }

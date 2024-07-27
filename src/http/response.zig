@@ -158,18 +158,21 @@ test "Response struct serialization" {
 
     try response.setContentType(http.ContentType.TextPlain);
     const contentType = response.headers.get("Content-Type").?;
-    try std.testing.expect(std.mem.eql(u8, contentType, http.ContentType.TextPlain.toString()));
+    try std.testing.expectEqualStrings(http.ContentType.TextPlain.toString(), contentType);
 
     try response.setBody("Hello World");
-    try std.testing.expect(std.mem.eql(u8, response.body.?, "Hello World"));
+    try std.testing.expectEqualStrings("Hello World", response.body.?);
 
     const contentLength = response.headers.get("Content-Length").?;
-    try std.testing.expect(std.mem.eql(u8, contentLength, "11"));
+    try std.testing.expectEqualStrings("11", contentLength);
 
     const bytes = try response.serialize(std.testing.allocator);
     defer std.testing.allocator.free(bytes);
 
-    try std.testing.expect(std.mem.eql(u8, bytes, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 11\r\n\r\nHello World"));
+    try std.testing.expectEqualStrings(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 11\r\n\r\nHello World",
+        bytes,
+    );
 }
 
 test "Response serialization without body" {
@@ -177,16 +180,19 @@ test "Response serialization without body" {
     defer response.deinit();
 
     response.setStatus(http.Status.NotFound);
-    try std.testing.expect(response.status == http.Status.NotFound);
+    try std.testing.expectEqual(http.Status.NotFound, response.status);
 
     try response.setContentType(http.ContentType.TextPlain);
     const contentType = response.headers.get("Content-Type").?;
-    try std.testing.expect(std.mem.eql(u8, contentType, http.ContentType.TextPlain.toString()));
+    try std.testing.expectEqualStrings(http.ContentType.TextPlain.toString(), contentType);
 
     const bytes = try response.serialize(std.testing.allocator);
     defer std.testing.allocator.free(bytes);
 
-    try std.testing.expect(std.mem.eql(u8, bytes, "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\n"));
+    try std.testing.expectEqualStrings(
+        "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\n\r\n",
+        bytes,
+    );
 }
 
 test "setting content length" {
@@ -195,5 +201,5 @@ test "setting content length" {
 
     try response.setContentLength(65535);
     const contentLength = response.headers.get("Content-Length").?;
-    try std.testing.expect(std.mem.eql(u8, contentLength, "65535"));
+    try std.testing.expectEqualStrings("65535", contentLength);
 }
