@@ -69,17 +69,29 @@ const RouteTrie = struct {
         };
     }
 
-    fn deinit(self: *RouteTrie) void {
-        var stack = std.ArrayList(*Node).init(self.allocator);
-        defer stack.deinit();
+    fn deinit(self: *RouteTrie) !void {
+        const L = std.DoublyLinkedList(*Node);
+        var queue = L{};
 
-        var val_it = self.root.children.valueIterator();
-        while (val_it.next()) |node| {
-            node.*.*.deinit();
-            self.allocator.destroy(node.*);
+        // TODO: Convert Route nodes to doubly linked list nodes so that they can be queued and freed.
+        const create_lnode = struct { fn f(node: *Node, allocator: Allocator) !*L.Node {
+            var lnode = try allocator.create(L.Node);
+            lnode.data = node;
+            return lnode;
+        }}.f;
+
+        queue.append(try create_lnode(self.root, self.allocator));
+
+        while (queue.popFirst()) |lnode| {
+            const node = lnode.data;
+            var it = node.children.valueIterator();
+            while (it.next()) |child| {
+                queue.append(try create_lnode(child, self.allocator));
+            }
+            node.deinit();
+            self.allocator.destroy(node);
+            self.allocator.destroy(lnode);
         }
-        self.root.deinit();
-        self.allocator.destroy(self.root);
     }
 
     const AddRouteError = error {
@@ -113,12 +125,16 @@ test "add to RouteTrie" {
     const Node = RouteTrie.Node;
 
     var trie = try RouteTrie.init(std.testing.allocator);
-    defer trie.deinit();
+    defer trie.deinit() catch std.testing.expect(false);
 
     const handler = struct {fn f (_: Request) Response {
         return try Response.init(std.testing.allocator);
     }}.f;
+
     try trie.addRoute("/abc", handler);
+    try trie.addRoute("/abc/xxx", handler);
+    try trie.addRoute("/def", handler);
+    try trie.addRoute("/ghi", handler);
 
     const new_node = trie.root.children.get("abc").?;
     try std.testing.expectEqualStrings("abc", new_node.*.key);
