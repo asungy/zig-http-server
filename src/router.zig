@@ -69,6 +69,19 @@ const RouteTrie = struct {
         };
     }
 
+    fn deinit(self: *RouteTrie) void {
+        var stack = std.ArrayList(*Node).init(self.allocator);
+        defer stack.deinit();
+
+        var val_it = self.root.children.valueIterator();
+        while (val_it.next()) |node| {
+            node.*.*.deinit();
+            self.allocator.destroy(node.*);
+        }
+        self.root.deinit();
+        self.allocator.destroy(self.root);
+    }
+
     const AddRouteError = error {
         RouteAlreadyExists,
         AllocationError,
@@ -94,15 +107,14 @@ const RouteTrie = struct {
         current.children.put(key, new_node) catch return AddRouteError.AllocationError;
     }
 
-    // fn deinit(self: RouteTrie) void {
-    // }
-
-
 };
 
 test "add to RouteTrie" {
     const Node = RouteTrie.Node;
+
     var trie = try RouteTrie.init(std.testing.allocator);
+    defer trie.deinit();
+
     const handler = struct {fn f (_: Request) Response {
         return try Response.init(std.testing.allocator);
     }}.f;
