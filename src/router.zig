@@ -8,6 +8,8 @@ const Node = struct {
     kind: Node.Kind,
     children: std.StringHashMap(*Node),
     handler: ?RouteHandler,
+    prev: ?*Node,
+    next: ?*Node,
 
     const delim = '/';
     inline fn delimString() []const u8 {
@@ -56,11 +58,45 @@ const Node = struct {
     }
 };
 
+const DoublyLinkedList = struct {
+    head: *Node,
+    tail: *Node,
+    allocator: Allocator,
+
+    const Self = @This();
+
+    fn init(allocator: Allocator) !Self {
+        var head = try allocator.create(Node);
+        var tail = try allocator.create(Node);
+        head.next = tail;
+        tail.prev = head;
+        return Self {
+            .allocator = allocator,
+            .head = head,
+            .tail = tail,
+        };
+    }
+
+    fn deinit(self: Self) void {
+        self.allocator.destroy(self.head);
+        self.allocator.destroy(self.tail);
+    }
+
+    fn prepend(self: *Self, node: *Node) void {
+        node.prev = self.head;
+        node.next = self.head.next;
+        node.next.?.prev = node;
+        self.head.next = node;
+    }
+
+    // fn append(self: *Self, node: *Node) void {
+    // }
+};
+
 const RouteHandler = *const fn(request: Request) Response;
 const RouteTrie = struct {
     root: *Node,
     allocator: Allocator,
-
 
     fn init(allocator: Allocator) !RouteTrie {
         const new_node = try allocator.create(Node);
@@ -123,6 +159,22 @@ const RouteTrie = struct {
 
 };
 
+test "Doubly Linked List" {
+    const allocator = std.testing.allocator;
+    const destroy = struct {fn destroy(n: *Node, a: Allocator) void {
+        n.deinit();
+        a.destroy(n);
+    }}.destroy;
+
+    var dll = try DoublyLinkedList.init(std.testing.allocator); defer dll.deinit();
+    const node1 = try Node.init(Node.delimString(), Node.Kind.Static, null, allocator); defer destroy(node1, allocator);
+    dll.prepend(node1);
+    try std.testing.expectEqual(node1, dll.head.next);
+    try std.testing.expectEqual(node1, dll.tail.prev);
+    try std.testing.expectEqual(dll.head, node1.prev);
+    try std.testing.expectEqual(dll.tail, node1.next);
+}
+
 test "add to RouteTrie" {
     if (true) return error.SkipZigTest;
 
@@ -160,18 +212,18 @@ test "find matching capture node" {
 }
 
 test "find matching static node" {
-    // if (true) return error.SkipZigTest;
-
-    const destroy = struct {fn destroy(node: *Node, allocator: Allocator) void {
-        node.deinit();
-        allocator.destroy(node);
-    }}.destroy;
+    if (true) return error.SkipZigTest;
 
     const allocator = std.testing.allocator;
+    const destroy = struct {fn destroy(node: *Node, a: Allocator) void {
+        node.deinit();
+        a.destroy(node);
+    }}.destroy;
+
     var rootNode = try Node.init(Node.delimString(), Node.Kind.Static, null, allocator); defer destroy(rootNode, allocator);
     var node1    = try Node.init("abc", Node.Kind.Static, null, allocator); defer destroy(node1, allocator);
     var node2    = try Node.init("def", Node.Kind.Static, null, allocator); defer destroy(node2, allocator);
-    const node3    = try Node.init("ghi", Node.Kind.Static, null, allocator); defer destroy(node3, allocator);
+    const node3  = try Node.init("ghi", Node.Kind.Static, null, allocator); defer destroy(node3, allocator);
 
     try rootNode.children.put(node1.key, node1);
     try node1.children.put(node2.key, node2);
