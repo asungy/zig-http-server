@@ -259,9 +259,29 @@ test "add to RouteTrie" {
     try trie.addRoute("/def", handler);
     try trie.addRoute("/ghi", handler);
 
-    const new_node = trie.root.children.get("abc").?;
-    try std.testing.expectEqualStrings("abc", new_node.*.key);
-    try std.testing.expectEqual(Node.Kind.Static, new_node.*.kind);
+    const abc = trie.root.children.get("abc").?;
+    try std.testing.expectEqualStrings("abc", abc.*.key);
+    try std.testing.expectEqual(Node.Kind.Static, abc.*.kind);
+
+    const xxx = abc.children.get("xxx").?;
+    try std.testing.expectEqualStrings("xxx", xxx.*.key);
+    try std.testing.expectEqual(Node.Kind.Static, xxx.*.kind);
+
+    const def = trie.root.children.get("def").?;
+    try std.testing.expectEqualStrings("def", def.*.key);
+    try std.testing.expectEqual(Node.Kind.Static, def.*.kind);
+
+    const ghi = trie.root.children.get("ghi").?;
+    try std.testing.expectEqualStrings("ghi", ghi.*.key);
+    try std.testing.expectEqual(Node.Kind.Static, ghi.*.kind);
+
+    try trie.addRoute("/def/aaa/bbb/ccc", handler);
+    const aaa = def.children.get("aaa").?;
+    try std.testing.expectEqual("aaa", aaa.*.key);
+    const bbb = aaa.children.get("bbb").?;
+    try std.testing.expectEqual("bbb", bbb.*.key);
+    const ccc = bbb.children.get("ccc").?;
+    try std.testing.expectEqual("ccc", ccc.*.key);
 }
 
 test "find matching capture node" {
