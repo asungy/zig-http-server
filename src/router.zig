@@ -89,47 +89,76 @@ const DoublyLinkedList = struct {
         self.head.next = node;
     }
 
-    // fn append(self: *Self, node: *Node) void {
-    // }
+    fn append(self: *Self, node: *Node) void {
+        node.prev = self.tail.prev;
+        node.next = self.tail;
+        self.tail.prev.?.next = node;
+        self.tail.prev = node;
+    }
+
+    fn pop_front(self: *Self) ?*Node {
+        if (self.head.next == self.tail) return null;
+
+        var result = self.head.next.?;
+
+        self.head.next = result.next;
+        result.next.?.prev = self.head;
+
+        result.prev = null;
+        result.next = null;
+
+        return result;
+    }
+
+    fn pop_back(self: *Self) ?*Node {
+        if (self.tail.prev == self.head) return null;
+
+        var result = self.tail.prev.?;
+        self.tail.prev = result.prev;
+        result.prev.?.next = self.tail;
+
+        result.prev = null;
+        result.next = null;
+
+        return result;
+    }
+
+    fn is_empty(self: Self) bool {
+        const result = self.head.next == self.tail;
+        if (result) { std.debug.assert(self.tail.prev == self.head); }
+        return result;
+    }
 };
 
 const RouteHandler = *const fn(request: Request) Response;
 const RouteTrie = struct {
     root: *Node,
     allocator: Allocator,
+    dll: DoublyLinkedList,
 
     fn init(allocator: Allocator) !RouteTrie {
-        const new_node = try allocator.create(Node);
-        new_node.init(undefined, Node.Kind.Root, null, allocator);
+        const new_node = try Node.init(undefined, Node.Kind.Root, null, allocator);
+        const dll = try DoublyLinkedList.init(allocator);
         return RouteTrie {
             .root = new_node,
             .allocator = allocator,
+            .dll = dll,
         };
     }
 
-    fn deinit(self: *RouteTrie) !void {
-        const L = std.DoublyLinkedList(*Node);
-        var queue = L{};
-
-        // TODO: Convert Route nodes to doubly linked list nodes so that they can be queued and freed.
-        const create_lnode = struct { fn f(node: *Node, allocator: Allocator) !*L.Node {
-            var lnode = try allocator.create(L.Node);
-            lnode.data = node;
-            return lnode;
-        }}.f;
-
-        queue.append(try create_lnode(self.root, self.allocator));
-
-        while (queue.popFirst()) |lnode| {
-            const node = lnode.data;
-            var it = node.children.valueIterator();
-            while (it.next()) |child| {
-                queue.append(try create_lnode(child.*, self.allocator));
+    fn deinit(self: *RouteTrie) void {
+        self.dll.append(self.root);
+        while (!self.dll.is_empty()) {
+            var current = self.dll.pop_front().?;
+            var it = current.children.valueIterator();
+            while (it.next()) |child|{
+                self.dll.append(child.*);
             }
-            node.deinit();
-            self.allocator.destroy(node);
-            self.allocator.destroy(lnode);
+
+            current.deinit();
+            self.allocator.destroy(current);
         }
+        self.dll.deinit();
     }
 
     const AddRouteError = error {
@@ -152,8 +181,8 @@ const RouteTrie = struct {
         }
 
         const key = paths.next().?;
-        var new_node: *Node = self.allocator.create(Node) catch return AddRouteError.AllocationError;
-        new_node.init(key, Node.Kind.Static, handler, self.allocator);
+        const new_node = Node.init(key, Node.Kind.Static, handler, self.allocator)
+            catch return AddRouteError.AllocationError;
         current.children.put(key, new_node) catch return AddRouteError.AllocationError;
     }
 
@@ -168,18 +197,58 @@ test "Doubly Linked List" {
 
     var dll = try DoublyLinkedList.init(std.testing.allocator); defer dll.deinit();
     const node1 = try Node.init(Node.delimString(), Node.Kind.Static, null, allocator); defer destroy(node1, allocator);
+    const node2 = try Node.init(Node.delimString(), Node.Kind.Static, null, allocator); defer destroy(node2, allocator);
+    const node3 = try Node.init(Node.delimString(), Node.Kind.Static, null, allocator); defer destroy(node3, allocator);
+    const node4 = try Node.init(Node.delimString(), Node.Kind.Static, null, allocator); defer destroy(node4, allocator);
+
+    try std.testing.expectEqual(null, dll.pop_front());
+    try std.testing.expectEqual(null, dll.pop_back());
+    try std.testing.expect(dll.is_empty());
+
+    // [ head ] <--> (1) <--> [ tail ]
     dll.prepend(node1);
+    try std.testing.expect(!dll.is_empty());
     try std.testing.expectEqual(node1, dll.head.next);
     try std.testing.expectEqual(node1, dll.tail.prev);
     try std.testing.expectEqual(dll.head, node1.prev);
     try std.testing.expectEqual(dll.tail, node1.next);
+
+    // [ head ] <--> (1) <--> (2) <--> [ tail ]
+    dll.append(node2);
+    try std.testing.expectEqual(node2, node1.next);
+    try std.testing.expectEqual(node2, dll.tail.prev);
+    try std.testing.expectEqual(node1, node2.prev);
+    try std.testing.expectEqual(dll.tail, node2.next);
+
+    // [ head ] <--> (3) <--> (1) <--> (2) <--> [ tail ]
+    dll.prepend(node3);
+    try std.testing.expectEqual(node3, dll.head.next);
+    try std.testing.expectEqual(node3, node1.prev);
+    try std.testing.expectEqual(dll.head, node3.prev);
+    try std.testing.expectEqual(node1, node3.next);
+
+    // [ head ] <--> (3) <--> (1) <--> (2) <--> (4) <--> [ tail ]
+    dll.append(node4);
+    try std.testing.expectEqual(node4, node2.next);
+    try std.testing.expectEqual(node4, dll.tail.prev);
+    try std.testing.expectEqual(node2, node4.prev);
+    try std.testing.expectEqual(dll.tail, node4.next);
+
+
+    // [ head ] <--> (1) <--> (2) <--> (4) <--> [ tail ]
+    try std.testing.expectEqual(node3, dll.pop_front());
+    try std.testing.expectEqual(node1, dll.head.next);
+    try std.testing.expectEqual(dll.head, node1.prev);
+
+    // [ head ] <--> (1) <--> (2) <--> [ tail ]
+    try std.testing.expectEqual(node4, dll.pop_back());
+    try std.testing.expectEqual(node2, dll.tail.prev);
+    try std.testing.expectEqual(dll.tail, node2.next);
 }
 
 test "add to RouteTrie" {
-    if (true) return error.SkipZigTest;
-
     var trie = try RouteTrie.init(std.testing.allocator);
-    defer trie.deinit() catch std.testing.expect(false);
+    defer trie.deinit();
 
     const handler = struct {fn f (_: Request) Response {
         return try Response.init(std.testing.allocator);
@@ -212,8 +281,6 @@ test "find matching capture node" {
 }
 
 test "find matching static node" {
-    if (true) return error.SkipZigTest;
-
     const allocator = std.testing.allocator;
     const destroy = struct {fn destroy(node: *Node, a: Allocator) void {
         node.deinit();
