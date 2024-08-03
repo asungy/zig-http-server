@@ -1,7 +1,25 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+
+const Http = @import("http/http.zig");
 const Request = @import("http/request.zig").Request;
 const Response = @import("http/response.zig").Response;
-const Allocator = std.mem.Allocator;
+
+const Context = struct {
+    capture_map: std.StringHashMap([]const u8),
+
+    fn init(allocator: Allocator) Context {
+        return Context {
+            .capture_map = std.StringHashMap([]const u8).init(allocator),
+        };
+    }
+
+    fn deinit(self: *Context) void {
+        self.capture_map.deinit();
+    }
+};
+
+const RouteHandler = *const fn(context: Context, request: Request, allocator: Allocator) Response;
 
 const Node = struct {
     key: []const u8,
@@ -25,13 +43,13 @@ const Node = struct {
     fn init(key: []const u8, handler: ?RouteHandler, allocator: Allocator) !*Node {
         var node = try allocator.create(Node);
         node.key = key;
-        node.kind = if (is_capture_key(key)) Kind.Capture else Kind.Static;
+        node.kind = if (isCaptureKey(key)) Kind.Capture else Kind.Static;
         node.handler = handler;
         node.children = std.StringHashMap(*Node).init(allocator);
 
         if (std.mem.eql(u8, key, delimString())) {
             node.kind = Kind.Root;
-        } else if (is_capture_key(key)) {
+        } else if (isCaptureKey(key)) {
             node.kind = Kind.Capture;
         } else {
             node.kind = Kind.Static;
@@ -44,7 +62,7 @@ const Node = struct {
         self.children.deinit();
     }
 
-    fn findMatchingNode(self: *Node, target: []const u8, allocator: Allocator) !?*Node {
+    fn findMatchingNode(self: *Node, target: []const u8, allocator: Allocator) Allocator.Error!?*Node {
         if (target.len == 0 or target[0] != Node.delim) return null;
 
         var paths = std.mem.split(u8, target, Node.delimString());
@@ -74,7 +92,7 @@ const Node = struct {
         return current_node;
     }
 
-    fn getCaptureChildren(self: Node, allocator: Allocator) !std.ArrayList(*Node) {
+    fn getCaptureChildren(self: Node, allocator: Allocator) Allocator.Error!std.ArrayList(*Node) {
         var list = std.ArrayList(*Node).init(allocator);
         var it = self.children.valueIterator();
         while (it.next()) |node| {
@@ -85,7 +103,7 @@ const Node = struct {
         return list;
     }
 
-    fn is_capture_key(key: []const u8) bool {
+    fn isCaptureKey(key: []const u8) bool {
         std.debug.assert(key.len > 0);
         return key[0] == '{' and key[key.len - 1] == '}';
     }
@@ -163,7 +181,6 @@ const DoublyLinkedList = struct {
     }
 };
 
-const RouteHandler = *const fn(request: Request) Response;
 const RouteTrie = struct {
     root: *Node,
     allocator: Allocator,
@@ -230,8 +247,43 @@ const RouteTrie = struct {
         }
     }
 
-    fn matchUrl(self: RouteTrie, url: []const u8) !?*Node {
+    fn matchUrl(self: RouteTrie, url: []const u8) Allocator.Error!?*Node {
         return try self.root.findMatchingNode(url, self.allocator);
+    }
+};
+
+const Router = struct {
+    trie: RouteTrie,
+    default_response: Response,
+
+    fn init(allocator: Allocator) Allocator.Error!Router {
+        var default_response = try Response.init(allocator);
+        default_response.setContentType(Http.ContentType.TextPlain);
+        default_response.setStatus(Http.Status.NotFound);
+        return Router {
+            .trie = try RouteTrie.init(allocator),
+            .default_response = default_response,
+        };
+    }
+
+    fn deinit(self: *Router) void {
+        self.trie.deinit();
+    }
+
+    fn addRoute(self: *Router, path: []const u8, handler: RouteHandler) !void {
+        try self.trie.addRoute(path, handler);
+    }
+
+    fn getResponse(self: Router, request: Request, allocator: Allocator) Allocator.Error!Response {
+        if (try self.trie.matchUrl(request.target)) |node| {
+            const context = Context.init(allocator);
+            defer context.deinit();
+
+            const response = node.handler.?(context, request, allocator);
+            return response;
+        } else {
+            return self.default_response;
+        }
     }
 };
 
@@ -239,8 +291,8 @@ test "add to RouteTrie" {
     var trie = try RouteTrie.init(std.testing.allocator);
     defer trie.deinit();
 
-    const handler = struct {fn f (_: Request) Response {
-        return try Response.init(std.testing.allocator);
+    const handler = struct {fn f (_: Context, _: Request, allocator: Allocator) Response {
+        return try Response.init(allocator);
     }}.f;
 
     try std.testing.expectEqualStrings(Node.delimString(), trie.root.*.key);
