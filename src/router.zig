@@ -5,7 +5,7 @@ const Http = @import("http/http.zig");
 const Request = @import("http/request.zig").Request;
 const Response = @import("http/response.zig").Response;
 
-const Context = struct {
+pub const Context = struct {
     capture_map: std.StringHashMap([]const u8),
 
     fn init(allocator: Allocator) Context {
@@ -19,7 +19,7 @@ const Context = struct {
     }
 };
 
-const RouteHandler = *const fn(context: Context, request: Request, allocator: Allocator) Response;
+pub const RouteHandler = *const fn(context: Context, request: Request, allocator: Allocator) Response;
 
 const Node = struct {
     key: []const u8,
@@ -40,7 +40,7 @@ const Node = struct {
         Capture,
     };
 
-    fn init(key: []const u8, handler: ?RouteHandler, allocator: Allocator) !*Node {
+    fn init(key: []const u8, handler: ?RouteHandler, allocator: Allocator) Allocator.Error!*Node {
         var node = try allocator.create(Node);
         node.key = key;
         node.kind = if (isCaptureKey(key)) Kind.Capture else Kind.Static;
@@ -116,7 +116,7 @@ const DoublyLinkedList = struct {
 
     const Self = @This();
 
-    fn init(allocator: Allocator) !Self {
+    fn init(allocator: Allocator) Allocator.Error!Self {
         var head = try allocator.create(Node);
         var tail = try allocator.create(Node);
         head.next = tail;
@@ -211,7 +211,7 @@ const RouteTrie = struct {
         self.dll.deinit();
     }
 
-    fn addRoute(self: *RouteTrie, path: []const u8, handler: RouteHandler) !void {
+    fn addRoute(self: *RouteTrie, path: []const u8, handler: RouteHandler) Allocator.Error!void {
         std.debug.assert(path.len > 0);
         std.debug.assert(path[0] == Node.delim);
 
@@ -252,13 +252,13 @@ const RouteTrie = struct {
     }
 };
 
-const Router = struct {
+pub const Router = struct {
     trie: RouteTrie,
     default_response: Response,
 
-    fn init(allocator: Allocator) Allocator.Error!Router {
+    pub fn init(allocator: Allocator) !Router {
         var default_response = try Response.init(allocator);
-        default_response.setContentType(Http.ContentType.TextPlain);
+        try default_response.setContentType(Http.ContentType.TextPlain);
         default_response.setStatus(Http.Status.NotFound);
         return Router {
             .trie = try RouteTrie.init(allocator),
@@ -266,17 +266,17 @@ const Router = struct {
         };
     }
 
-    fn deinit(self: *Router) void {
+    pub fn deinit(self: *Router) void {
         self.trie.deinit();
     }
 
-    fn addRoute(self: *Router, path: []const u8, handler: RouteHandler) !void {
+    pub fn addRoute(self: *Router, path: []const u8, handler: RouteHandler) Allocator.Error!void {
         try self.trie.addRoute(path, handler);
     }
 
-    fn getResponse(self: Router, request: Request, allocator: Allocator) Allocator.Error!Response {
+    pub fn getResponse(self: Router, request: Request, allocator: Allocator) Allocator.Error!Response {
         if (try self.trie.matchUrl(request.target)) |node| {
-            const context = Context.init(allocator);
+            var context = Context.init(allocator);
             defer context.deinit();
 
             const response = node.handler.?(context, request, allocator);
