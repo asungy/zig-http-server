@@ -44,17 +44,29 @@ const Node = struct {
         self.children.deinit();
     }
 
-    fn findMatchingNode(self: *Node, target: []const u8) ?*Node {
-        if (target.len == 0 or target[0] != Node.delim or
-            !std.mem.eql(u8, self.key, Node.delimString())) return null;
+    fn findMatchingNode(self: *Node, target: []const u8, allocator: Allocator) !?*Node {
+        if (target.len == 0 or target[0] != Node.delim) return null;
 
-        if (std.mem.eql(u8, target, Node.delimString())) return self;
-
+        var created_nodes = std.ArrayList(*Node).init(allocator); defer created_nodes.deinit();
         var paths = std.mem.split(u8, target, Node.delimString());
         var current_node = self;
         var current_path = paths.next();
 
         while (paths.next()) |next_path| {
+            if (std.mem.eql(u8, next_path, "")) break;
+
+            const capture_nodes = try self.getCaptureChildren(allocator);
+            defer capture_nodes.deinit();
+
+            if (capture_nodes.items.len > 0) {
+                var merged = try Node.init(undefined, null, allocator);
+                for (capture_nodes.items) |node| {
+                    try merged.children.put(node.key, node);
+                }
+                try created_nodes.append(merged);
+                current_node = merged;
+            }
+
             if (current_node.children.get(next_path)) |next_node| {
                 current_node = next_node;
                 current_path = next_path;
@@ -64,6 +76,17 @@ const Node = struct {
         }
 
         return current_node;
+    }
+
+    fn getCaptureChildren(self: Node, allocator: Allocator) !std.ArrayList(*Node) {
+        var list = std.ArrayList(*Node).init(allocator);
+        var it = self.children.valueIterator();
+        while (it.next()) |node| {
+            if (node.*.kind == Kind.Capture) {
+                try list.append(node.*);
+            }
+        }
+        return list;
     }
 
     fn is_capture_key(key: []const u8) bool {
@@ -211,6 +234,9 @@ const RouteTrie = struct {
         }
     }
 
+    fn matchUrl(self: RouteTrie, url: []const u8) !?*Node {
+        return try self.root.findMatchingNode(url, self.allocator);
+    }
 };
 
 test "add to RouteTrie" {
@@ -224,39 +250,39 @@ test "add to RouteTrie" {
     try std.testing.expectEqualStrings(Node.delimString(), trie.root.*.key);
     try std.testing.expectEqual(Node.Kind.Root, trie.root.*.kind);
 
-    try trie.addRoute("/abc", handler);
-    try trie.addRoute("/abc/xxx", handler);
-    try trie.addRoute("/def", handler);
-    try trie.addRoute("/ghi", handler);
-
-    const abc = trie.root.children.get("abc").?;
-    try std.testing.expectEqualStrings("abc", abc.*.key);
-    try std.testing.expectEqual(Node.Kind.Static, abc.*.kind);
-
-    const xxx = abc.children.get("xxx").?;
-    try std.testing.expectEqualStrings("xxx", xxx.*.key);
-    try std.testing.expectEqual(Node.Kind.Static, xxx.*.kind);
-
-    const def = trie.root.children.get("def").?;
-    try std.testing.expectEqualStrings("def", def.*.key);
-    try std.testing.expectEqual(Node.Kind.Static, def.*.kind);
-
-    const ghi = trie.root.children.get("ghi").?;
-    try std.testing.expectEqualStrings("ghi", ghi.*.key);
-    try std.testing.expectEqual(Node.Kind.Static, ghi.*.kind);
-
     try trie.addRoute("/def/aaa/bbb/ccc", handler);
-    const aaa = def.children.get("aaa").?;
-    try std.testing.expectEqualStrings("aaa", aaa.*.key);
-    const bbb = aaa.children.get("bbb").?;
-    try std.testing.expectEqualStrings("bbb", bbb.*.key);
-    const ccc = bbb.children.get("ccc").?;
-    try std.testing.expectEqualStrings("ccc", ccc.*.key);
+    {
+        const def = trie.root.children.get("def").?;
+        try std.testing.expectEqualStrings("def", def.*.key);
+        try std.testing.expectEqual(Node.Kind.Static, def.*.kind);
+
+        const aaa = def.children.get("aaa").?;
+        try std.testing.expectEqualStrings("aaa", aaa.*.key);
+        try std.testing.expectEqual(Node.Kind.Static, aaa.*.kind);
+
+        const bbb = aaa.children.get("bbb").?;
+        try std.testing.expectEqualStrings("bbb", bbb.*.key);
+        try std.testing.expectEqual(Node.Kind.Static, bbb.*.kind);
+
+        const ccc = bbb.children.get("ccc").?;
+        try std.testing.expectEqualStrings("ccc", ccc.*.key);
+        try std.testing.expectEqual(Node.Kind.Static, ccc.*.kind);
+    }
 
     try trie.addRoute("/ghi/{abc}", handler);
-    const capture_abc = ghi.children.get("{abc}").?;
-    try std.testing.expectEqualStrings("{abc}", capture_abc.*.key);
-    try std.testing.expectEqual(Node.Kind.Capture, capture_abc.*.kind);
+    {
+        const ghi = trie.root.children.get("ghi").?;
+        try std.testing.expectEqualStrings("ghi", ghi.*.key);
+        try std.testing.expectEqual(Node.Kind.Static, ghi.*.kind);
+
+        const capture_abc = ghi.children.get("{abc}").?;
+        try std.testing.expectEqualStrings("{abc}", capture_abc.*.key);
+        try std.testing.expectEqual(Node.Kind.Capture, capture_abc.*.kind);
+    }
+
+    try std.testing.expectEqual(null, trie.matchUrl("/does/not/exist"));
+    try std.testing.expectEqualStrings("aaa", (try trie.matchUrl("/def/aaa")).?.key);
+    try std.testing.expectEqualStrings("{abc}", (try trie.matchUrl("/ghi/hello")).?.key);
 }
 
 test "find matching static node" {
@@ -276,19 +302,19 @@ test "find matching static node" {
     try node2.children.put(node3.key, node3);
 
     // Error checking.
-    try std.testing.expectEqual(null, rootNode.findMatchingNode(""));
-    try std.testing.expectEqual(null, rootNode.findMatchingNode("abc"));
-    try std.testing.expectEqual(null, node1.findMatchingNode("abc"));
+    try std.testing.expectEqual(null, rootNode.findMatchingNode("", allocator));
+    try std.testing.expectEqual(null, rootNode.findMatchingNode("abc", allocator));
+    try std.testing.expectEqual(null, node1.findMatchingNode("abc", allocator));
 
     // Positive case.
-    try std.testing.expectEqual(rootNode, rootNode.findMatchingNode("/").?);
-    try std.testing.expectEqual(node1,    rootNode.findMatchingNode("/abc").?);
-    try std.testing.expectEqual(node2,    rootNode.findMatchingNode("/abc/def").?);
-    try std.testing.expectEqual(node3,    rootNode.findMatchingNode("/abc/def/ghi").?);
+    try std.testing.expectEqual(rootNode, (try rootNode.findMatchingNode("/", allocator)).?);
+    try std.testing.expectEqual(node1,    (try rootNode.findMatchingNode("/abc", allocator)).?);
+    try std.testing.expectEqual(node2,    (try rootNode.findMatchingNode("/abc/def", allocator)).?);
+    try std.testing.expectEqual(node3,    (try rootNode.findMatchingNode("/abc/def/ghi", allocator)).?);
 
     // Negative case.
-    try std.testing.expectEqual(null, rootNode.findMatchingNode("/xyz"));
-    try std.testing.expectEqual(null, rootNode.findMatchingNode("/abc/def/ghi/jkl"));
+    try std.testing.expectEqual(null, rootNode.findMatchingNode("/xyz", allocator));
+    try std.testing.expectEqual(null, rootNode.findMatchingNode("/abc/def/ghi/jkl", allocator));
 }
 
 test "Doubly Linked List" {
