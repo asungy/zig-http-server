@@ -47,7 +47,6 @@ const Node = struct {
     fn findMatchingNode(self: *Node, target: []const u8, allocator: Allocator) !?*Node {
         if (target.len == 0 or target[0] != Node.delim) return null;
 
-        var created_nodes = std.ArrayList(*Node).init(allocator); defer created_nodes.deinit();
         var paths = std.mem.split(u8, target, Node.delimString());
         var current_node = self;
         var current_path = paths.next();
@@ -55,23 +54,20 @@ const Node = struct {
         while (paths.next()) |next_path| {
             if (std.mem.eql(u8, next_path, "")) break;
 
-            const capture_nodes = try self.getCaptureChildren(allocator);
-            defer capture_nodes.deinit();
-
-            if (capture_nodes.items.len > 0) {
-                var merged = try Node.init(undefined, null, allocator);
-                for (capture_nodes.items) |node| {
-                    try merged.children.put(node.key, node);
-                }
-                try created_nodes.append(merged);
-                current_node = merged;
-            }
-
             if (current_node.children.get(next_path)) |next_node| {
                 current_node = next_node;
                 current_path = next_path;
             } else {
-                return null;
+
+                var capture_nodes = try current_node.getCaptureChildren(allocator);
+                defer capture_nodes.deinit();
+
+                // NOTE: This just returns the last capture group.
+                if (capture_nodes.items.len > 0) {
+                    current_node = capture_nodes.pop();
+                } else {
+                    return null;
+                }
             }
         }
 
