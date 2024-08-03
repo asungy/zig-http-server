@@ -22,12 +22,21 @@ const Node = struct {
         Capture,
     };
 
-    fn init(key: []const u8, kind: Node.Kind, handler: ?RouteHandler, allocator: Allocator) !*Node {
+    fn init(key: []const u8, handler: ?RouteHandler, allocator: Allocator) !*Node {
         var node = try allocator.create(Node);
         node.key = key;
-        node.kind = kind;
+        node.kind = if (is_capture_key(key)) Kind.Capture else Kind.Static;
         node.handler = handler;
         node.children = std.StringHashMap(*Node).init(allocator);
+
+        if (std.mem.eql(u8, key, delimString())) {
+            node.kind = Kind.Root;
+        } else if (is_capture_key(key)) {
+            node.kind = Kind.Capture;
+        } else {
+            node.kind = Kind.Static;
+        }
+
         return node;
     }
 
@@ -55,6 +64,11 @@ const Node = struct {
         }
 
         return current_node;
+    }
+
+    fn is_capture_key(key: []const u8) bool {
+        std.debug.assert(key.len > 0);
+        return key[0] == '{' and key[key.len - 1] == '}';
     }
 };
 
@@ -137,7 +151,7 @@ const RouteTrie = struct {
     dll: DoublyLinkedList,
 
     fn init(allocator: Allocator) !RouteTrie {
-        const new_node = try Node.init(undefined, Node.Kind.Root, null, allocator);
+        const new_node = try Node.init("/", null, allocator);
         const dll = try DoublyLinkedList.init(allocator);
         return RouteTrie {
             .root = new_node,
@@ -161,10 +175,7 @@ const RouteTrie = struct {
         self.dll.deinit();
     }
 
-    const AddRouteError = error {
-        AllocationError,
-    };
-    fn addRoute(self: *RouteTrie, path: []const u8, handler: RouteHandler) AddRouteError!void {
+    fn addRoute(self: *RouteTrie, path: []const u8, handler: RouteHandler) !void {
         std.debug.assert(path.len > 0);
         std.debug.assert(path[0] == Node.delim);
 
@@ -182,21 +193,18 @@ const RouteTrie = struct {
 
         if (paths.peek() == null) {
             if (prev_path) |p| {
-                const new_node = Node.init(p, Node.Kind.Static, null, self.allocator)
-                    catch return AddRouteError.AllocationError;
-                current.children.put(p, new_node) catch return AddRouteError.AllocationError;
+                const new_node = try Node.init(p, null, self.allocator);
+                try current.children.put(p, new_node);
             } else {
                 current.handler = handler;
             }
         } else {
-            var new_node = Node.init(prev_path.?, Node.Kind.Static, null, self.allocator)
-                catch return AddRouteError.AllocationError;
-            current.children.put(prev_path.?, new_node) catch return AddRouteError.AllocationError;
+            var new_node = try Node.init(prev_path.?, null, self.allocator);
+            try current.children.put(prev_path.?, new_node);
             current = new_node;
             while (paths.next()) |current_path| {
-                new_node = Node.init(current_path, Node.Kind.Static, null, self.allocator)
-                    catch return AddRouteError.AllocationError;
-                current.children.put(current_path, new_node) catch return AddRouteError.AllocationError;
+                new_node = try Node.init(current_path, null, self.allocator);
+                try current.children.put(current_path, new_node);
                 current = new_node;
             }
             current.handler = handler;
@@ -212,6 +220,9 @@ test "add to RouteTrie" {
     const handler = struct {fn f (_: Request) Response {
         return try Response.init(std.testing.allocator);
     }}.f;
+
+    try std.testing.expectEqualStrings(Node.delimString(), trie.root.*.key);
+    try std.testing.expectEqual(Node.Kind.Root, trie.root.*.kind);
 
     try trie.addRoute("/abc", handler);
     try trie.addRoute("/abc/xxx", handler);
@@ -241,22 +252,11 @@ test "add to RouteTrie" {
     try std.testing.expectEqualStrings("bbb", bbb.*.key);
     const ccc = bbb.children.get("ccc").?;
     try std.testing.expectEqualStrings("ccc", ccc.*.key);
-}
 
-test "find matching capture node" {
-    if (true) return error.SkipZigTest;
-
-    var rootNode = try Node.init(Node.delimString(), Node.Kind.Static, null, std.testing.allocator); defer rootNode.deinit();
-    var node1    = try Node.init("abc",   Node.Kind.Static, null, std.testing.allocator); defer node1.deinit();
-    var node2    = try Node.init("{def}", Node.Kind.Static, null, std.testing.allocator); defer node2.deinit();
-    var node3    = try Node.init("ghi",   Node.Kind.Static, null, std.testing.allocator); defer node3.deinit();
-
-    try rootNode.children.put(node1.key, node1);
-    try node1.children.put(node2.key, node2);
-    try node2.children.put(node3.key, node3);
-
-    try std.testing.expectEqual(node2, rootNode.findMatchingNode("/abc/hello").?);
-    try std.testing.expectEqual(node3, rootNode.findMatchingNode("/abc/whatsup/ghi").?);
+    try trie.addRoute("/ghi/{abc}", handler);
+    const capture_abc = ghi.children.get("{abc}").?;
+    try std.testing.expectEqualStrings("{abc}", capture_abc.*.key);
+    try std.testing.expectEqual(Node.Kind.Capture, capture_abc.*.kind);
 }
 
 test "find matching static node" {
@@ -266,10 +266,10 @@ test "find matching static node" {
         a.destroy(node);
     }}.destroy;
 
-    var rootNode = try Node.init(Node.delimString(), Node.Kind.Static, null, allocator); defer destroy(rootNode, allocator);
-    var node1    = try Node.init("abc", Node.Kind.Static, null, allocator); defer destroy(node1, allocator);
-    var node2    = try Node.init("def", Node.Kind.Static, null, allocator); defer destroy(node2, allocator);
-    const node3  = try Node.init("ghi", Node.Kind.Static, null, allocator); defer destroy(node3, allocator);
+    var rootNode = try Node.init(Node.delimString(), null, allocator); defer destroy(rootNode, allocator);
+    var node1    = try Node.init("abc", null, allocator); defer destroy(node1, allocator);
+    var node2    = try Node.init("def", null, allocator); defer destroy(node2, allocator);
+    const node3  = try Node.init("ghi", null, allocator); defer destroy(node3, allocator);
 
     try rootNode.children.put(node1.key, node1);
     try node1.children.put(node2.key, node2);
@@ -299,10 +299,10 @@ test "Doubly Linked List" {
     }}.destroy;
 
     var dll = try DoublyLinkedList.init(std.testing.allocator); defer dll.deinit();
-    const node1 = try Node.init(Node.delimString(), Node.Kind.Static, null, allocator); defer destroy(node1, allocator);
-    const node2 = try Node.init(Node.delimString(), Node.Kind.Static, null, allocator); defer destroy(node2, allocator);
-    const node3 = try Node.init(Node.delimString(), Node.Kind.Static, null, allocator); defer destroy(node3, allocator);
-    const node4 = try Node.init(Node.delimString(), Node.Kind.Static, null, allocator); defer destroy(node4, allocator);
+    const node1 = try Node.init(Node.delimString(), null, allocator); defer destroy(node1, allocator);
+    const node2 = try Node.init(Node.delimString(), null, allocator); defer destroy(node2, allocator);
+    const node3 = try Node.init(Node.delimString(), null, allocator); defer destroy(node3, allocator);
+    const node4 = try Node.init(Node.delimString(), null, allocator); defer destroy(node4, allocator);
 
     try std.testing.expectEqual(null, dll.pop_front());
     try std.testing.expectEqual(null, dll.pop_back());
