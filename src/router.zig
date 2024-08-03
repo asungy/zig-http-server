@@ -162,31 +162,134 @@ const RouteTrie = struct {
     }
 
     const AddRouteError = error {
-        RouteAlreadyExists,
         AllocationError,
     };
     fn addRoute(self: *RouteTrie, path: []const u8, handler: RouteHandler) AddRouteError!void {
         std.debug.assert(path.len > 0);
         std.debug.assert(path[0] == Node.delim);
 
+        var prev_path: ?[]const u8 = null;
         var current: *Node = self.root;
         var paths = std.mem.split(u8, path[1..], Node.delimString());
-        while (paths.peek()) |current_path| {
+        while (paths.next()) |current_path| {
             if (current.children.get(current_path)) |next| {
                 current = next;
-                _ = paths.next();
             } else {
+                prev_path = current_path;
                 break;
             }
         }
 
-        const key = paths.next().?;
-        const new_node = Node.init(key, Node.Kind.Static, handler, self.allocator)
-            catch return AddRouteError.AllocationError;
-        current.children.put(key, new_node) catch return AddRouteError.AllocationError;
+        if (paths.peek() == null) {
+            if (prev_path) |p| {
+                const new_node = Node.init(p, Node.Kind.Static, null, self.allocator)
+                    catch return AddRouteError.AllocationError;
+                current.children.put(p, new_node) catch return AddRouteError.AllocationError;
+            } else {
+                current.handler = handler;
+            }
+        } else {
+            var new_node = Node.init(prev_path.?, Node.Kind.Static, null, self.allocator)
+                catch return AddRouteError.AllocationError;
+            current.children.put(prev_path.?, new_node) catch return AddRouteError.AllocationError;
+            current = new_node;
+            while (paths.next()) |current_path| {
+                new_node = Node.init(current_path, Node.Kind.Static, null, self.allocator)
+                    catch return AddRouteError.AllocationError;
+                current.children.put(current_path, new_node) catch return AddRouteError.AllocationError;
+                current = new_node;
+            }
+            current.handler = handler;
+        }
     }
 
 };
+
+test "add to RouteTrie" {
+    var trie = try RouteTrie.init(std.testing.allocator);
+    defer trie.deinit();
+
+    const handler = struct {fn f (_: Request) Response {
+        return try Response.init(std.testing.allocator);
+    }}.f;
+
+    try trie.addRoute("/abc", handler);
+    try trie.addRoute("/abc/xxx", handler);
+    try trie.addRoute("/def", handler);
+    try trie.addRoute("/ghi", handler);
+
+    const abc = trie.root.children.get("abc").?;
+    try std.testing.expectEqualStrings("abc", abc.*.key);
+    try std.testing.expectEqual(Node.Kind.Static, abc.*.kind);
+
+    const xxx = abc.children.get("xxx").?;
+    try std.testing.expectEqualStrings("xxx", xxx.*.key);
+    try std.testing.expectEqual(Node.Kind.Static, xxx.*.kind);
+
+    const def = trie.root.children.get("def").?;
+    try std.testing.expectEqualStrings("def", def.*.key);
+    try std.testing.expectEqual(Node.Kind.Static, def.*.kind);
+
+    const ghi = trie.root.children.get("ghi").?;
+    try std.testing.expectEqualStrings("ghi", ghi.*.key);
+    try std.testing.expectEqual(Node.Kind.Static, ghi.*.kind);
+
+    try trie.addRoute("/def/aaa/bbb/ccc", handler);
+    const aaa = def.children.get("aaa").?;
+    try std.testing.expectEqualStrings("aaa", aaa.*.key);
+    const bbb = aaa.children.get("bbb").?;
+    try std.testing.expectEqualStrings("bbb", bbb.*.key);
+    const ccc = bbb.children.get("ccc").?;
+    try std.testing.expectEqualStrings("ccc", ccc.*.key);
+}
+
+test "find matching capture node" {
+    if (true) return error.SkipZigTest;
+
+    var rootNode = try Node.init(Node.delimString(), Node.Kind.Static, null, std.testing.allocator); defer rootNode.deinit();
+    var node1    = try Node.init("abc",   Node.Kind.Static, null, std.testing.allocator); defer node1.deinit();
+    var node2    = try Node.init("{def}", Node.Kind.Static, null, std.testing.allocator); defer node2.deinit();
+    var node3    = try Node.init("ghi",   Node.Kind.Static, null, std.testing.allocator); defer node3.deinit();
+
+    try rootNode.children.put(node1.key, node1);
+    try node1.children.put(node2.key, node2);
+    try node2.children.put(node3.key, node3);
+
+    try std.testing.expectEqual(node2, rootNode.findMatchingNode("/abc/hello").?);
+    try std.testing.expectEqual(node3, rootNode.findMatchingNode("/abc/whatsup/ghi").?);
+}
+
+test "find matching static node" {
+    const allocator = std.testing.allocator;
+    const destroy = struct {fn destroy(node: *Node, a: Allocator) void {
+        node.deinit();
+        a.destroy(node);
+    }}.destroy;
+
+    var rootNode = try Node.init(Node.delimString(), Node.Kind.Static, null, allocator); defer destroy(rootNode, allocator);
+    var node1    = try Node.init("abc", Node.Kind.Static, null, allocator); defer destroy(node1, allocator);
+    var node2    = try Node.init("def", Node.Kind.Static, null, allocator); defer destroy(node2, allocator);
+    const node3  = try Node.init("ghi", Node.Kind.Static, null, allocator); defer destroy(node3, allocator);
+
+    try rootNode.children.put(node1.key, node1);
+    try node1.children.put(node2.key, node2);
+    try node2.children.put(node3.key, node3);
+
+    // Error checking.
+    try std.testing.expectEqual(null, rootNode.findMatchingNode(""));
+    try std.testing.expectEqual(null, rootNode.findMatchingNode("abc"));
+    try std.testing.expectEqual(null, node1.findMatchingNode("abc"));
+
+    // Positive case.
+    try std.testing.expectEqual(rootNode, rootNode.findMatchingNode("/").?);
+    try std.testing.expectEqual(node1,    rootNode.findMatchingNode("/abc").?);
+    try std.testing.expectEqual(node2,    rootNode.findMatchingNode("/abc/def").?);
+    try std.testing.expectEqual(node3,    rootNode.findMatchingNode("/abc/def/ghi").?);
+
+    // Negative case.
+    try std.testing.expectEqual(null, rootNode.findMatchingNode("/xyz"));
+    try std.testing.expectEqual(null, rootNode.findMatchingNode("/abc/def/ghi/jkl"));
+}
 
 test "Doubly Linked List" {
     const allocator = std.testing.allocator;
@@ -246,88 +349,3 @@ test "Doubly Linked List" {
     try std.testing.expectEqual(dll.tail, node2.next);
 }
 
-test "add to RouteTrie" {
-    var trie = try RouteTrie.init(std.testing.allocator);
-    defer trie.deinit();
-
-    const handler = struct {fn f (_: Request) Response {
-        return try Response.init(std.testing.allocator);
-    }}.f;
-
-    try trie.addRoute("/abc", handler);
-    try trie.addRoute("/abc/xxx", handler);
-    try trie.addRoute("/def", handler);
-    try trie.addRoute("/ghi", handler);
-
-    const abc = trie.root.children.get("abc").?;
-    try std.testing.expectEqualStrings("abc", abc.*.key);
-    try std.testing.expectEqual(Node.Kind.Static, abc.*.kind);
-
-    const xxx = abc.children.get("xxx").?;
-    try std.testing.expectEqualStrings("xxx", xxx.*.key);
-    try std.testing.expectEqual(Node.Kind.Static, xxx.*.kind);
-
-    const def = trie.root.children.get("def").?;
-    try std.testing.expectEqualStrings("def", def.*.key);
-    try std.testing.expectEqual(Node.Kind.Static, def.*.kind);
-
-    const ghi = trie.root.children.get("ghi").?;
-    try std.testing.expectEqualStrings("ghi", ghi.*.key);
-    try std.testing.expectEqual(Node.Kind.Static, ghi.*.kind);
-
-    try trie.addRoute("/def/aaa/bbb/ccc", handler);
-    const aaa = def.children.get("aaa").?;
-    try std.testing.expectEqual("aaa", aaa.*.key);
-    const bbb = aaa.children.get("bbb").?;
-    try std.testing.expectEqual("bbb", bbb.*.key);
-    const ccc = bbb.children.get("ccc").?;
-    try std.testing.expectEqual("ccc", ccc.*.key);
-}
-
-test "find matching capture node" {
-    if (true) return error.SkipZigTest;
-
-    var rootNode = try Node.init(Node.delimString(), Node.Kind.Static, null, std.testing.allocator); defer rootNode.deinit();
-    var node1    = try Node.init("abc",   Node.Kind.Static, null, std.testing.allocator); defer node1.deinit();
-    var node2    = try Node.init("{def}", Node.Kind.Static, null, std.testing.allocator); defer node2.deinit();
-    var node3    = try Node.init("ghi",   Node.Kind.Static, null, std.testing.allocator); defer node3.deinit();
-
-    try rootNode.children.put(node1.key, node1);
-    try node1.children.put(node2.key, node2);
-    try node2.children.put(node3.key, node3);
-
-    try std.testing.expectEqual(node2, rootNode.findMatchingNode("/abc/hello").?);
-    try std.testing.expectEqual(node3, rootNode.findMatchingNode("/abc/whatsup/ghi").?);
-}
-
-test "find matching static node" {
-    const allocator = std.testing.allocator;
-    const destroy = struct {fn destroy(node: *Node, a: Allocator) void {
-        node.deinit();
-        a.destroy(node);
-    }}.destroy;
-
-    var rootNode = try Node.init(Node.delimString(), Node.Kind.Static, null, allocator); defer destroy(rootNode, allocator);
-    var node1    = try Node.init("abc", Node.Kind.Static, null, allocator); defer destroy(node1, allocator);
-    var node2    = try Node.init("def", Node.Kind.Static, null, allocator); defer destroy(node2, allocator);
-    const node3  = try Node.init("ghi", Node.Kind.Static, null, allocator); defer destroy(node3, allocator);
-
-    try rootNode.children.put(node1.key, node1);
-    try node1.children.put(node2.key, node2);
-    try node2.children.put(node3.key, node3);
-
-    // Error checking.
-    try std.testing.expectEqual(null, rootNode.findMatchingNode(""));
-    try std.testing.expectEqual(null, rootNode.findMatchingNode("abc"));
-    try std.testing.expectEqual(null, node1.findMatchingNode("abc"));
-
-    // Positive case.
-    try std.testing.expectEqual(rootNode, rootNode.findMatchingNode("/").?);
-    try std.testing.expectEqual(node1,    rootNode.findMatchingNode("/abc").?);
-    try std.testing.expectEqual(node2,    rootNode.findMatchingNode("/abc/def").?);
-    try std.testing.expectEqual(node3,    rootNode.findMatchingNode("/abc/def/ghi").?);
-
-    // Negative case.
-    try std.testing.expectEqual(null, rootNode.findMatchingNode("/xyz"));
-    try std.testing.expectEqual(null, rootNode.findMatchingNode("/abc/def/ghi/jkl"));
-}
