@@ -45,6 +45,7 @@ pub const Server = struct {
 
         const request = try Request.parse(&buffer);
         var response = try self.router.getResponse(request, self.allocator);
+        defer response.deinit();
         try self.sendResponse(&response, &conn);
     }
 

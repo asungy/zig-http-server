@@ -1,6 +1,8 @@
 const Request = @import("http/request.zig").Request;
 const Response = @import("http/response.zig").Response;
+const Http = @import("http/http.zig");
 const Server = @import("server.zig").Server;
+const Context = @import("router.zig").Context;
 const std = @import("std");
 
 pub fn main() !void {
@@ -9,10 +11,20 @@ pub fn main() !void {
 
     var server = try Server.init("127.0.0.1", 4221, allocator);
     defer server.deinit();
+    try server.addRoute("/echo/{echo}", struct {
+        fn f(_context: Context, _: Request, _allocator: std.mem.Allocator) Response {
+            var response = Response.init(_allocator);
+            response.setStatus(Http.Status.NotFound);
+            response.setContentType(Http.ContentType.TextPlain) catch return response;
 
-    // server.addRoute("/echo/{str}", struct { fn cb(request: Request) Response {
-    //
-    // }}.cb);
+            if (_context.capture_map.get("echo")) |echo| {
+                response.setBody(echo) catch return response;
+                response.setStatus(Http.Status.OK);
+            }
+
+            return response;
+        }
+    }.f);
 
     return server.run();
 }

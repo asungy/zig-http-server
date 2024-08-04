@@ -8,9 +8,9 @@ const Response = @import("http/response.zig").Response;
 pub const Context = struct {
     capture_map: std.StringHashMap([]const u8),
 
-    fn init(allocator: Allocator) Context {
+    fn init(capture_map: std.StringHashMap([]const u8)) Context {
         return Context {
-            .capture_map = std.StringHashMap([]const u8).init(allocator),
+            .capture_map = capture_map,
         };
     }
 
@@ -20,6 +20,15 @@ pub const Context = struct {
 };
 
 pub const RouteHandler = *const fn(context: Context, request: Request, allocator: Allocator) Response;
+
+pub const Match = struct {
+    node: *Node,
+    capture_map: std.StringHashMap([]const u8),
+
+    pub fn deinit(self: *Match) void {
+        self.capture_map.deinit();
+    }
+};
 
 const Node = struct {
     key: []const u8,
@@ -62,12 +71,13 @@ const Node = struct {
         self.children.deinit();
     }
 
-    fn findMatchingNode(self: *Node, target: []const u8, allocator: Allocator) Allocator.Error!?*Node {
+    fn findMatching(self: *Node, target: []const u8, allocator: Allocator) Allocator.Error!?Match {
         if (target.len == 0 or target[0] != Node.delim) return null;
 
         var paths = std.mem.split(u8, target, Node.delimString());
         var current_node = self;
         var current_path = paths.next();
+        var capture_map = std.StringHashMap([]const u8).init(allocator);
 
         while (paths.next()) |next_path| {
             if (std.mem.eql(u8, next_path, "")) break;
@@ -83,13 +93,27 @@ const Node = struct {
                 // NOTE: This just returns the last capture group.
                 if (capture_nodes.items.len > 0) {
                     current_node = capture_nodes.pop();
+                    try capture_map.put(stripCaptureKey(current_node.key), next_path);
+                    current_path = next_path;
                 } else {
                     return null;
                 }
             }
         }
 
-        return current_node;
+        const match = Match {
+            .capture_map = capture_map,
+            .node = current_node,
+        };
+        return match;
+    }
+
+    fn stripCaptureKey(key: []const u8) []const u8 {
+        if (isCaptureKey(key) and key.len > 2) {
+            return key[1..key.len-1];
+        } else {
+            return key;
+        }
     }
 
     fn getCaptureChildren(self: Node, allocator: Allocator) Allocator.Error!std.ArrayList(*Node) {
@@ -247,8 +271,8 @@ const RouteTrie = struct {
         }
     }
 
-    fn matchUrl(self: RouteTrie, url: []const u8) Allocator.Error!?*Node {
-        return try self.root.findMatchingNode(url, self.allocator);
+    fn matchUrl(self: RouteTrie, url: []const u8) Allocator.Error!?Match {
+        return try self.root.findMatching(url, self.allocator);
     }
 };
 
@@ -257,7 +281,7 @@ pub const Router = struct {
     default_response: Response,
 
     pub fn init(allocator: Allocator) !Router {
-        var default_response = try Response.init(allocator);
+        var default_response = Response.init(allocator);
         try default_response.setContentType(Http.ContentType.TextPlain);
         default_response.setStatus(Http.Status.NotFound);
         return Router {
@@ -275,11 +299,11 @@ pub const Router = struct {
     }
 
     pub fn getResponse(self: Router, request: Request, allocator: Allocator) Allocator.Error!Response {
-        if (try self.trie.matchUrl(request.target)) |node| {
-            var context = Context.init(allocator);
+        if (try self.trie.matchUrl(request.target)) |match| {
+            var context = Context.init(match.capture_map);
             defer context.deinit();
 
-            const response = node.handler.?(context, request, allocator);
+            const response = match.node.handler.?(context, request, allocator);
             return response;
         } else {
             return self.default_response;
@@ -329,8 +353,14 @@ test "add to RouteTrie" {
     }
 
     try std.testing.expectEqual(null, trie.matchUrl("/does/not/exist"));
-    try std.testing.expectEqualStrings("aaa", (try trie.matchUrl("/def/aaa")).?.key);
-    try std.testing.expectEqualStrings("{abc}", (try trie.matchUrl("/ghi/hello")).?.key);
+    try std.testing.expectEqualStrings("aaa", (try trie.matchUrl("/def/aaa")).?.node.key);
+
+    {
+        var match = (try trie.matchUrl("/ghi/hello")).?;
+        defer match.deinit();
+        try std.testing.expectEqualStrings("{abc}", match.node.key);
+        try std.testing.expectEqualStrings("hello", match.capture_map.get("abc").?);
+    }
 }
 
 test "find matching static node" {
@@ -350,19 +380,19 @@ test "find matching static node" {
     try node2.children.put(node3.key, node3);
 
     // Error checking.
-    try std.testing.expectEqual(null, rootNode.findMatchingNode("", allocator));
-    try std.testing.expectEqual(null, rootNode.findMatchingNode("abc", allocator));
-    try std.testing.expectEqual(null, node1.findMatchingNode("abc", allocator));
+    try std.testing.expectEqual(null, rootNode.findMatching("", allocator));
+    try std.testing.expectEqual(null, rootNode.findMatching("abc", allocator));
+    try std.testing.expectEqual(null, node1.findMatching("abc", allocator));
 
     // Positive case.
-    try std.testing.expectEqual(rootNode, (try rootNode.findMatchingNode("/", allocator)).?);
-    try std.testing.expectEqual(node1,    (try rootNode.findMatchingNode("/abc", allocator)).?);
-    try std.testing.expectEqual(node2,    (try rootNode.findMatchingNode("/abc/def", allocator)).?);
-    try std.testing.expectEqual(node3,    (try rootNode.findMatchingNode("/abc/def/ghi", allocator)).?);
+    try std.testing.expectEqual(rootNode, (try rootNode.findMatching("/", allocator)).?.node);
+    try std.testing.expectEqual(node1,    (try rootNode.findMatching("/abc", allocator)).?.node);
+    try std.testing.expectEqual(node2,    (try rootNode.findMatching("/abc/def", allocator)).?.node);
+    try std.testing.expectEqual(node3,    (try rootNode.findMatching("/abc/def/ghi", allocator)).?.node);
 
     // Negative case.
-    try std.testing.expectEqual(null, rootNode.findMatchingNode("/xyz", allocator));
-    try std.testing.expectEqual(null, rootNode.findMatchingNode("/abc/def/ghi/jkl", allocator));
+    try std.testing.expectEqual(null, rootNode.findMatching("/xyz", allocator));
+    try std.testing.expectEqual(null, rootNode.findMatching("/abc/def/ghi/jkl", allocator));
 }
 
 test "Doubly Linked List" {

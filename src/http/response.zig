@@ -9,7 +9,7 @@ status: http.Status,
 headers: std.StringHashMap([]const u8),
 body: ?[]const u8,
 
-pub fn init(allocator: std.mem.Allocator) !Response {
+pub fn init(allocator: std.mem.Allocator) Response {
     const arena = std.heap.ArenaAllocator.init(allocator);
     return Response {
         .arena = arena,
