@@ -246,7 +246,11 @@ const RouteTrie = struct {
             if (current.children.get(current_path)) |next| {
                 current = next;
             } else {
-                prev_path = current_path;
+                // Handle the case where std.mem.split splits on "/" and
+                // `current_path` is an empty string.
+                if (current_path.len > 0) {
+                    prev_path = current_path;
+                }
                 break;
             }
         }

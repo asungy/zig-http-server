@@ -26,13 +26,11 @@ pub fn main() !void {
         }
     }.f);
 
-    try server.addRoute("/hello", struct {
+    try server.addRoute("/", struct {
         fn f(_: Context, _: Request, _allocator: std.mem.Allocator) Response {
             var response = Response.init(_allocator);
-            response.setStatus(Http.Status.NotFound);
+            response.setStatus(Http.Status.OK);
             response.setContentType(Http.ContentType.TextPlain) catch return response;
-            response.setBody("bye") catch return response;
-            response.setStatus(Http.Status.NotFound);
             return response;
         }
     }.f);
