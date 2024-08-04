@@ -44,8 +44,11 @@ pub const Server = struct {
         _ = try conn.stream.reader().read(&buffer);
 
         const request = try Request.parse(&buffer);
+        defer request.deinit();
+
         var response = try self.router.getResponse(request, self.allocator);
         defer response.deinit();
+
         try self.sendResponse(&response, &conn);
     }
 

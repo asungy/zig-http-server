@@ -11,6 +11,15 @@ pub fn main() !void {
 
     var server = try Server.init("127.0.0.1", 4221, allocator);
     defer server.deinit();
+    try server.addRoute("/", struct {
+        fn f(_: Context, _: Request, _allocator: std.mem.Allocator) Response {
+            var response = Response.init(_allocator);
+            response.setStatus(Http.Status.OK);
+            response.setContentType(Http.ContentType.TextPlain) catch return response;
+            return response;
+        }
+    }.f);
+
     try server.addRoute("/echo/{echo}", struct {
         fn f(_context: Context, _: Request, _allocator: std.mem.Allocator) Response {
             var response = Response.init(_allocator);
@@ -26,14 +35,19 @@ pub fn main() !void {
         }
     }.f);
 
-    try server.addRoute("/", struct {
+    try server.addRoute("/user-agent", struct {
         fn f(_: Context, _: Request, _allocator: std.mem.Allocator) Response {
             var response = Response.init(_allocator);
-            response.setStatus(Http.Status.OK);
+            response.setStatus(Http.Status.NotFound);
             response.setContentType(Http.ContentType.TextPlain) catch return response;
+
+            // TODO: Handle after implementing header parsing.
+
+            response.setStatus(Http.Status.OK);
             return response;
         }
     }.f);
+
 
     return server.run();
 }
