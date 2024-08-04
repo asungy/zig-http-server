@@ -152,7 +152,7 @@ fn headersBytes(self: *Response, allocator: std.mem.Allocator) ![]const u8 {
 }
 
 test "Response struct serialization" {
-    var response = try Response.init(std.testing.allocator);
+    var response = Response.init(std.testing.allocator);
     defer response.deinit();
 
     try response.setContentType(http.ContentType.TextPlain);
@@ -175,7 +175,7 @@ test "Response struct serialization" {
 }
 
 test "Response serialization without body" {
-    var response = try Response.init(std.testing.allocator);
+    var response = Response.init(std.testing.allocator);
     defer response.deinit();
 
     response.setStatus(http.Status.NotFound);
@@ -195,7 +195,7 @@ test "Response serialization without body" {
 }
 
 test "setting content length" {
-    var response = try Response.init(std.testing.allocator);
+    var response = Response.init(std.testing.allocator);
     defer response.deinit();
 
     try response.setContentLength(65535);

@@ -320,7 +320,7 @@ test "add to RouteTrie" {
     defer trie.deinit();
 
     const handler = struct {fn f (_: Context, _: Request, allocator: Allocator) Response {
-        return try Response.init(allocator);
+        return Response.init(allocator);
     }}.f;
 
     try std.testing.expectEqualStrings(Node.delimString(), trie.root.*.key);
