@@ -36,12 +36,13 @@ pub fn main() !void {
     }.f);
 
     try server.addRoute("/user-agent", struct {
-        fn f(_: Context, _: Request, _allocator: std.mem.Allocator) Response {
+        fn f(_: Context, request: Request, _allocator: std.mem.Allocator) Response {
             var response = Response.init(_allocator);
             response.setStatus(Http.Status.NotFound);
             response.setContentType(Http.ContentType.TextPlain) catch return response;
 
-            // TODO: Handle after implementing header parsing.
+            const user_agent = if (request.headers.get("User-Agent")) |v| v else return response;
+            response.setBody(user_agent) catch return response;
 
             response.setStatus(Http.Status.OK);
             return response;

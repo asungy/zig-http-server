@@ -43,7 +43,7 @@ pub const Server = struct {
         var buffer: [1024]u8 = undefined;
         _ = try conn.stream.reader().read(&buffer);
 
-        const request = try Request.parse(&buffer);
+        var request = try Request.parse(&buffer, self.allocator);
         defer request.deinit();
 
         var response = try self.router.getResponse(request, self.allocator);
