@@ -253,7 +253,7 @@ const RouteTrie = struct {
 
         if (paths.peek() == null) {
             if (prev_path) |p| {
-                const new_node = try Node.init(p, null, self.allocator);
+                const new_node = try Node.init(p, handler, self.allocator);
                 try current.children.put(p, new_node);
             } else {
                 current.handler = handler;
