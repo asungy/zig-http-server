@@ -5,58 +5,82 @@ const RouteHandler = @import("router.zig").RouteHandler;
 const http = @import("http/http.zig");
 const std = @import("std");
 
+pub const Server = @This();
 const Allocator = std.mem.Allocator;
-const print = std.debug.print;
 
-pub const Server = struct {
-    allocator: Allocator,
-    address: []const u8,
-    port: u16,
-    server: std.net.Server,
-    router: Router,
+allocator: Allocator,
+address: []const u8,
+port: u16,
+server: std.net.Server,
+router: Router,
+pool: *std.Thread.Pool,
 
-    pub fn init(address_name: []const u8, port: u16, allocator: Allocator) !Server {
-        const address = try std.net.Address.resolveIp(address_name, port);
-        return Server {
-            .allocator = allocator,
-            .address = address_name,
-            .port = port,
-            .server = try address.listen(.{ .reuse_address = true }),
-            .router = try Router.init(allocator),
-        };
+pub fn init(address_name: []const u8, port: u16, allocator: Allocator) !Server {
+    var pool = try allocator.create(std.Thread.Pool);
+    try pool.init(.{ .allocator = allocator, .n_jobs = 8 } );
+    const address = try std.net.Address.resolveIp(address_name, port);
+    return Server {
+        .allocator = allocator,
+        .address = address_name,
+        .port = port,
+        .server = try address.listen(.{ .reuse_address = true }),
+        .router = try Router.init(allocator),
+        .pool = pool,
+    };
+}
+
+pub fn deinit(self: *Server) void {
+    self.server.deinit();
+    self.router.deinit();
+    self.pool.deinit();
+    self.allocator.destroy(self.pool);
+    self.* = undefined;
+}
+
+pub fn addRoute(self: *Server, path: []const u8, handler: RouteHandler) Allocator.Error!void {
+    try self.router.addRoute(path, handler);
+}
+
+pub fn run(self: *Server) !void {
+    std.debug.print("Listening on {s}:{d}\n", .{self.address, self.port});
+
+    while (true) {
+        const conn = try self.allocator.create(std.net.Server.Connection);
+        conn.* = try self.server.accept();
+        try self.pool.spawn(connectionHandler, .{conn, self.router, self.allocator});
     }
+}
 
-    pub fn deinit(self: *Server) void {
-        self.server.deinit();
-        self.router.deinit();
-        self.* = undefined;
-    }
+fn sendResponse(response: *Response, conn: *std.net.Server.Connection, allocator: Allocator) !void {
+    const bytes = try response.serialize(allocator);
+    defer allocator.free(bytes);
+    try conn.stream.writer().writeAll(bytes);
+}
 
-    pub fn addRoute(self: *Server, path: []const u8, handler: RouteHandler) Allocator.Error!void {
-        try self.router.addRoute(path, handler);
-    }
+fn connectionHandler(conn: *std.net.Server.Connection, router: Router, allocator: Allocator) void {
+    var buffer: [1024]u8 = undefined;
+    _ = conn.stream.reader().read(&buffer) catch {
+        std.debug.print("Could not read from connect stream.", .{});
+        return;
+    };
 
-    pub fn run(self: *Server) !void {
-        print("Listening on {s}:{d}\n", .{self.address, self.port});
-        var conn = try self.server.accept();
-        defer conn.stream.close();
+    var request = Request.parse(&buffer, allocator) catch {
+        std.debug.print("Could not read from connect stream.", .{});
+        return;
+    };
+    defer request.deinit();
 
-        var buffer: [1024]u8 = undefined;
-        _ = try conn.stream.reader().read(&buffer);
+    var response = router.createResponse(request, allocator) catch {
+        std.debug.print("Error creating response.", .{});
+        return;
+    };
+    defer response.deinit();
 
-        var request = try Request.parse(&buffer, self.allocator);
-        defer request.deinit();
+    sendResponse(&response, conn, allocator) catch {
+        std.debug.print("Error sending response.", .{});
+        return;
+    };
 
-        var response = try self.router.getResponse(request, self.allocator);
-        defer response.deinit();
-
-        try self.sendResponse(&response, &conn);
-    }
-
-    fn sendResponse(self: *Server, response: *Response, conn: *std.net.Server.Connection) !void {
-        const bytes = try response.serialize(self.allocator);
-        defer self.allocator.free(bytes);
-        try conn.stream.writer().writeAll(bytes);
-    }
-};
-
+    conn.stream.close();
+    allocator.destroy(conn);
+}

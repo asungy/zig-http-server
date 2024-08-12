@@ -307,7 +307,7 @@ pub const Router = struct {
         try self.trie.addRoute(path, handler);
     }
 
-    pub fn getResponse(self: Router, request: Request, allocator: Allocator) Allocator.Error!Response {
+    pub fn createResponse(self: Router, request: Request, allocator: Allocator) Allocator.Error!Response {
         if (try self.trie.matchUrl(request.target)) |match| {
             var context = Context.init(match.capture_map);
             defer context.deinit();
