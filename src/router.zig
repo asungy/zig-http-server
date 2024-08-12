@@ -16,6 +16,7 @@ pub const Context = struct {
 
     fn deinit(self: *Context) void {
         self.capture_map.deinit();
+        self.* = undefined;
     }
 };
 
@@ -27,6 +28,7 @@ pub const Match = struct {
 
     pub fn deinit(self: *Match) void {
         self.capture_map.deinit();
+        self.* = undefined;
     }
 };
 
@@ -69,6 +71,7 @@ const Node = struct {
 
     fn deinit(self: *Node) void {
         self.children.deinit();
+        self.* = undefined;
     }
 
     fn findMatching(self: *Node, target: []const u8, allocator: Allocator) Allocator.Error!?Match {
@@ -233,6 +236,7 @@ const RouteTrie = struct {
             self.allocator.destroy(current);
         }
         self.dll.deinit();
+        self.* = undefined;
     }
 
     fn addRoute(self: *RouteTrie, path: []const u8, handler: RouteHandler) Allocator.Error!void {
@@ -296,6 +300,7 @@ pub const Router = struct {
 
     pub fn deinit(self: *Router) void {
         self.trie.deinit();
+        self.* = undefined;
     }
 
     pub fn addRoute(self: *Router, path: []const u8, handler: RouteHandler) Allocator.Error!void {

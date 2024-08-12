@@ -23,6 +23,7 @@ pub fn init(allocator: std.mem.Allocator) Response {
 pub fn deinit(self: *Response) void {
     _ = self.arena.reset(.free_all);
     self.headers.deinit();
+    self.* = undefined;
 }
 
 pub fn setStatus(self: *Response, status: http.Status) void {

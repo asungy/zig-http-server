@@ -54,6 +54,7 @@ pub fn parse(raw_request: []const u8, allocator: std.mem.Allocator) ParseError!R
 
 pub fn deinit(self: *Request) void {
     self.headers.deinit();
+    self.* = undefined;
 }
 
 test "http request parses into Request struct" {

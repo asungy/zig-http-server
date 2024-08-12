@@ -29,6 +29,7 @@ pub const Server = struct {
     pub fn deinit(self: *Server) void {
         self.server.deinit();
         self.router.deinit();
+        self.* = undefined;
     }
 
     pub fn addRoute(self: *Server, path: []const u8, handler: RouteHandler) Allocator.Error!void {
