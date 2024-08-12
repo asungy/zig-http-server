@@ -38,19 +38,21 @@ pub const Server = struct {
 
     pub fn run(self: *Server) !void {
         print("Listening on {s}:{d}\n", .{self.address, self.port});
-        var conn = try self.server.accept();
-        defer conn.stream.close();
+        while (true) {
+            var conn = try self.server.accept();
+            defer conn.stream.close();
 
-        var buffer: [1024]u8 = undefined;
-        _ = try conn.stream.reader().read(&buffer);
+            var buffer: [1024]u8 = undefined;
+            _ = try conn.stream.reader().read(&buffer);
 
-        var request = try Request.parse(&buffer, self.allocator);
-        defer request.deinit();
+            var request = try Request.parse(&buffer, self.allocator);
+            defer request.deinit();
 
-        var response = try self.router.getResponse(request, self.allocator);
-        defer response.deinit();
+            var response = try self.router.getResponse(request, self.allocator);
+            defer response.deinit();
 
-        try self.sendResponse(&response, &conn);
+            try self.sendResponse(&response, &conn);
+        }
     }
 
     fn sendResponse(self: *Server, response: *Response, conn: *std.net.Server.Connection) !void {
