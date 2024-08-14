@@ -8,4 +8,4 @@
 
 set -e # Exit on failure
 
-exec zig-out/bin/http_server"$@"
+exec zig-out/bin/http_server "$@"
