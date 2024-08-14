@@ -31,11 +31,13 @@ pub const Version = enum {
 pub const Status = enum {
     OK,
     NotFound,
+    InternalServerError,
 
     pub fn code(self: Status) u16 {
         return switch (self) {
-            Status.OK       => 200,
-            Status.NotFound => 404,
+            Status.OK                  => 200,
+            Status.NotFound            => 404,
+            Status.InternalServerError => 500,
         };
     }
 
@@ -43,16 +45,19 @@ pub const Status = enum {
         return switch (self) {
             Status.OK       => "OK",
             Status.NotFound => "Not Found",
+            Status.InternalServerError => "Internal Server Error",
         };
     }
 };
 
 pub const ContentType = enum {
     TextPlain,
+    OctetStream,
 
     pub fn toString(self: ContentType) []const u8 {
         return switch (self) {
             ContentType.TextPlain => "text/plain",
+            ContentType.OctetStream => "application/octet-stream",
         };
     }
 };

@@ -31,7 +31,10 @@ pub fn init(option: Option) !Server {
         .address = option.address,
         .port = option.port,
         .server = try address.listen(.{ .reuse_address = true }),
-        .router = try Router.init(option.allocator),
+        .router = try Router.init(.{
+            .file_directory = option.directory,
+            .allocator = option.allocator,
+        }),
         .pool = pool,
     };
 }

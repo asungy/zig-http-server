@@ -7,10 +7,15 @@ const Response = @import("http/response.zig").Response;
 
 pub const Context = struct {
     capture_map: std.StringHashMap([]const u8),
+    file_directory: []const u8,
 
-    fn init(capture_map: std.StringHashMap([]const u8)) Context {
+    fn init(option: struct {
+        capture_map: std.StringHashMap([]const u8),
+        file_directory: []const u8,
+    }) Context {
         return Context {
-            .capture_map = capture_map,
+            .capture_map = option.capture_map,
+            .file_directory = option.file_directory,
         };
     }
 
@@ -287,14 +292,20 @@ const RouteTrie = struct {
 pub const Router = struct {
     trie: RouteTrie,
     default_response: Response,
+    file_directory: []const u8,
 
-    pub fn init(allocator: Allocator) !Router {
-        var default_response = Response.init(allocator);
+    pub fn init(option: struct {
+        file_directory: []const u8,
+        allocator: Allocator,
+    }) !Router {
+        var default_response = Response.init(option.allocator);
         try default_response.setContentType(Http.ContentType.TextPlain);
         default_response.setStatus(Http.Status.NotFound);
+
         return Router {
-            .trie = try RouteTrie.init(allocator),
+            .trie = try RouteTrie.init(option.allocator),
             .default_response = default_response,
+            .file_directory = std.mem.trimRight(u8, option.file_directory, "/"),
         };
     }
 
@@ -309,7 +320,10 @@ pub const Router = struct {
 
     pub fn createResponse(self: Router, request: Request, allocator: Allocator) Allocator.Error!Response {
         if (try self.trie.matchUrl(request.target)) |match| {
-            var context = Context.init(match.capture_map);
+            var context = Context.init(.{
+                .capture_map = match.capture_map,
+                .file_directory = self.file_directory,
+            });
             defer context.deinit();
 
             const response = match.node.handler.?(context, request, allocator);
