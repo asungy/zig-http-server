@@ -5,11 +5,40 @@ const Server = @import("server.zig").Server;
 const Context = @import("router.zig").Context;
 const std = @import("std");
 
+const ArgError = error {
+    NoValueProvided,
+};
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
-    var server = try Server.init("127.0.0.1", 4221, allocator);
+    var address: []const u8 = "127.0.0.1";
+    var port: u16 = 4221;
+    var directory: []const u8 = "/tmp";
+
+    var args = std.process.args();
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--address")) {
+            address = args.next() orelse address;
+            break;
+        }
+        if (std.mem.eql(u8, arg, "--port")) {
+            port = try std.fmt.parseInt(u16, args.next() orelse return ArgError.NoValueProvided, 10);
+            break;
+        }
+        if (std.mem.eql(u8, arg, "--directory")) {
+            directory = args.next() orelse directory;
+            break;
+        }
+    }
+
+    var server = try Server.init(.{
+        .address = address,
+        .port = port,
+        .allocator = allocator,
+        .directory = directory,
+    });
     defer server.deinit();
     try server.addRoute("/", struct {
         fn f(_: Context, _: Request, _allocator: std.mem.Allocator) Response {
@@ -48,7 +77,6 @@ pub fn main() !void {
             return response;
         }
     }.f);
-
 
     return server.run();
 }

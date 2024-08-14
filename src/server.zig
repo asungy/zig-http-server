@@ -15,16 +15,23 @@ server: std.net.Server,
 router: Router,
 pool: *std.Thread.Pool,
 
-pub fn init(address_name: []const u8, port: u16, allocator: Allocator) !Server {
-    var pool = try allocator.create(std.Thread.Pool);
-    try pool.init(.{ .allocator = allocator, .n_jobs = 8 } );
-    const address = try std.net.Address.resolveIp(address_name, port);
+pub const Option = struct {
+    address: []const u8,
+    port: u16,
+    directory: []const u8,
+    allocator: Allocator,
+};
+
+pub fn init(option: Option) !Server {
+    var pool = try option.allocator.create(std.Thread.Pool);
+    try pool.init(.{ .allocator = option.allocator, .n_jobs = 8 } );
+    const address = try std.net.Address.resolveIp(option.address, option.port);
     return Server {
-        .allocator = allocator,
-        .address = address_name,
-        .port = port,
+        .allocator = option.allocator,
+        .address = option.address,
+        .port = option.port,
         .server = try address.listen(.{ .reuse_address = true }),
-        .router = try Router.init(allocator),
+        .router = try Router.init(option.allocator),
         .pool = pool,
     };
 }
