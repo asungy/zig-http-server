@@ -40,6 +40,17 @@ pub fn main() !void {
         .directory = directory,
     });
     defer server.deinit();
+
+    try server.addRoute("/exit", struct {
+        fn f(_context: Context, _: Request, _allocator: std.mem.Allocator) Response {
+            @atomicStore(bool, _context.exit_flag, true, std.builtin.AtomicOrder.unordered);
+            var response = Response.init(_allocator);
+            response.setStatus(Http.Status.OK);
+            response.setContentType(Http.ContentType.TextPlain) catch return response;
+            return response;
+        }
+    }.f);
+
     try server.addRoute("/", struct {
         fn f(_: Context, _: Request, _allocator: std.mem.Allocator) Response {
             var response = Response.init(_allocator);
@@ -79,7 +90,7 @@ pub fn main() !void {
     }.f);
 
     try server.addRoute("/files/{file}", struct {
-        fn f(_context: Context, _: Request, _allocator: std.mem.Allocator) Response {
+        fn f(_context: Context, _request: Request, _allocator: std.mem.Allocator) Response {
             var response = Response.init(_allocator);
             response.setContentType(Http.ContentType.TextPlain) catch {
                 response.setStatus(Http.Status.InternalServerError);
@@ -87,64 +98,68 @@ pub fn main() !void {
             };
 
             if (_context.capture_map.get("file")) |filename| {
-                const buf = _allocator.alloc(u8, _context.file_directory.len + filename.len + 1) catch {
-                    response.setStatus(Http.Status.InternalServerError);
-                    response.setBody("Buffer allocation error") catch {};
-                    return response;
-                };
-                defer _allocator.free(buf);
-                const path = std.fmt.bufPrint(buf, "{s}/{s}", .{_context.file_directory, filename}) catch {
-                    response.setStatus(Http.Status.InternalServerError);
-                    response.setBody("Error formatting file path") catch {};
-                    return response;
-                };
+                if (_request.method == Http.Method.GET) {
+                    const buf = _allocator.alloc(u8, _context.file_directory.len + filename.len + 1) catch {
+                        response.setStatus(Http.Status.InternalServerError);
+                        response.setBody("Buffer allocation error") catch {};
+                        return response;
+                    };
+                    defer _allocator.free(buf);
+                    const path = std.fmt.bufPrint(buf, "{s}/{s}", .{_context.file_directory, filename}) catch {
+                        response.setStatus(Http.Status.InternalServerError);
+                        response.setBody("Error formatting file path") catch {};
+                        return response;
+                    };
 
-                const options = std.fs.File.OpenFlags {
-                    .mode = .read_only,
-                    .lock = .none,
-                    .lock_nonblocking = false,
-                    .allow_ctty = false,
-                };
-                var file = std.fs.openFileAbsolute(path, options) catch {
-                    response.setStatus(Http.Status.NotFound);
-                    return response;
-                };
-                defer file.close();
+                    const options = std.fs.File.OpenFlags {
+                        .mode = .read_only,
+                        .lock = .none,
+                        .lock_nonblocking = false,
+                        .allow_ctty = false,
+                    };
+                    var file = std.fs.openFileAbsolute(path, options) catch {
+                        response.setStatus(Http.Status.NotFound);
+                        return response;
+                    };
+                    defer file.close();
 
-                const stat = file.stat() catch {
-                    response.setStatus(Http.Status.InternalServerError);
-                    response.setBody("Error getting file stat") catch {};
-                    return response;
-                };
-                const contents = _allocator.alloc(u8, stat.size) catch {
-                    response.setStatus(Http.Status.InternalServerError);
-                    response.setBody("Buffer allocation error") catch {};
-                    return response;
-                };
-                defer _allocator.free(contents);
-                _ = file.readAll(contents) catch {
-                    response.setStatus(Http.Status.InternalServerError);
-                    response.setBody("Error reading file contents") catch {};
-                    return response;
-                };
+                    const stat = file.stat() catch {
+                        response.setStatus(Http.Status.InternalServerError);
+                        response.setBody("Error getting file stat") catch {};
+                        return response;
+                    };
+                    const contents = _allocator.alloc(u8, stat.size) catch {
+                        response.setStatus(Http.Status.InternalServerError);
+                        response.setBody("Buffer allocation error") catch {};
+                        return response;
+                    };
+                    defer _allocator.free(contents);
+                    _ = file.readAll(contents) catch {
+                        response.setStatus(Http.Status.InternalServerError);
+                        response.setBody("Error reading file contents") catch {};
+                        return response;
+                    };
 
-                response.setBody(contents) catch {
-                    response.setStatus(Http.Status.InternalServerError);
-                    response.setBody("Error writing body contents") catch {};
-                    return response;
-                };
+                    response.setBody(contents) catch {
+                        response.setStatus(Http.Status.InternalServerError);
+                        response.setBody("Error writing body contents") catch {};
+                        return response;
+                    };
 
-                response.setContentType(Http.ContentType.OctetStream) catch {
-                    response.setStatus(Http.Status.InternalServerError);
-                    response.setBody("Error setting content type") catch {};
+                    response.setContentType(Http.ContentType.OctetStream) catch {
+                        response.setStatus(Http.Status.InternalServerError);
+                        response.setBody("Error setting content type") catch {};
+                        return response;
+                    };
+                    response.setStatus(Http.Status.OK);
                     return response;
-                };
-                response.setStatus(Http.Status.OK);
-                return response;
-            } else {
-                response.setStatus(Http.Status.NotFound);
-                return response;
+                } else if (_request.method == Http.Method.POST) {
+
+                }
             }
+
+            response.setStatus(Http.Status.NotFound);
+            return response;
         }
     }.f);
 

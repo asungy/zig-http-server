@@ -2,9 +2,12 @@ const std = @import("std");
 
 pub const Method = enum {
     GET,
+    POST,
     pub fn fromString(str: []const u8) ?Method {
         return if (std.mem.eql(u8, str, "GET")) {
             return Method.GET;
+        } else if (std.mem.eql(u8, str, "POST")) {
+            return Method.POST;
         } else {
             return null;
         };

@@ -14,6 +14,7 @@ port: u16,
 server: std.net.Server,
 router: Router,
 pool: *std.Thread.Pool,
+exit_flag: *bool,
 
 pub const Option = struct {
     address: []const u8,
@@ -25,7 +26,11 @@ pub const Option = struct {
 pub fn init(option: Option) !Server {
     var pool = try option.allocator.create(std.Thread.Pool);
     try pool.init(.{ .allocator = option.allocator, .n_jobs = 8 } );
+
     const address = try std.net.Address.resolveIp(option.address, option.port);
+
+    const exit_flag = try option.allocator.create(bool);
+
     return Server {
         .allocator = option.allocator,
         .address = option.address,
@@ -34,8 +39,10 @@ pub fn init(option: Option) !Server {
         .router = try Router.init(.{
             .file_directory = option.directory,
             .allocator = option.allocator,
+            .exit_flag = exit_flag,
         }),
         .pool = pool,
+        .exit_flag = exit_flag,
     };
 }
 
@@ -44,6 +51,7 @@ pub fn deinit(self: *Server) void {
     self.router.deinit();
     self.pool.deinit();
     self.allocator.destroy(self.pool);
+    self.allocator.destroy(self.exit_flag);
     self.* = undefined;
 }
 
@@ -54,7 +62,7 @@ pub fn addRoute(self: *Server, path: []const u8, handler: RouteHandler) Allocato
 pub fn run(self: *Server) !void {
     std.debug.print("Listening on {s}:{d}\n", .{self.address, self.port});
 
-    while (true) {
+    while (!@atomicLoad(bool, self.exit_flag, std.builtin.AtomicOrder.unordered)) {
         const conn = try self.allocator.create(std.net.Server.Connection);
         conn.* = try self.server.accept();
         try self.pool.spawn(connectionHandler, .{conn, self.router, self.allocator});
