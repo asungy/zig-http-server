@@ -329,6 +329,7 @@ pub const Router = struct {
 
     pub fn deinit(self: *Router) void {
         self.trie.deinit();
+        self.default_response.deinit();
         self.* = undefined;
     }
 
