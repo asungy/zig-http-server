@@ -96,7 +96,7 @@ fn connectionHandler(conn: *std.net.Server.Connection, router: Router, allocator
     };
 
     var request = Request.parse(&buffer, allocator) catch {
-        std.debug.print("Could not read from connect stream.", .{});
+        std.debug.print("Error parsing request.", .{});
         return;
     };
     defer request.deinit();

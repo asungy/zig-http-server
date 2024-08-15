@@ -47,9 +47,12 @@ pub fn parse(raw_request: []const u8, allocator: std.mem.Allocator) ParseError!R
 
     var body: ?[]const u8 = undefined;
     if (lines.next()) |b| {
-        const content_length_string = headers.get("Content-Length") orelse return ParseError.MalformedRequest;
-        const content_length = std.fmt.parseInt(usize, content_length_string, 10) catch return ParseError.MalformedRequest;
-        body = b[0..content_length];
+        if (headers.get("Content-Length")) |content_length_string| {
+            const content_length = std.fmt.parseInt(usize, content_length_string, 10) catch return ParseError.MalformedRequest;
+            body = b[0..content_length];
+        } else {
+            body = null;
+        }
     } else {
         body = null;
     }
