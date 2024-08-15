@@ -6,6 +6,7 @@ method: http.Method,
 target: []const u8,
 version: http.Version,
 headers: std.StringHashMap([]const u8),
+body: ?[]const u8,
 
 pub const ParseError = error {
     NoMethod,
@@ -44,11 +45,13 @@ pub fn parse(raw_request: []const u8, allocator: std.mem.Allocator) ParseError!R
         headers.put(key, value) catch return ParseError.AllocationError;
     }
 
+    const body: ?[]const u8 = if (lines.next()) |b| b else null;
     return Request {
         .method = method orelse return ParseError.NoMethod,
         .target = target orelse return ParseError.NoTarget,
         .version = version orelse return ParseError.NoHttpVersion,
         .headers = headers,
+        .body = body,
     };
 }
 
@@ -57,7 +60,17 @@ pub fn deinit(self: *Request) void {
     self.* = undefined;
 }
 
-test "http request parses into Request struct" {
+test "parse request body" {
+    var request = try Request.parse(
+        "POST /files/number HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/7.64.1\r\nAccept: */*\r\nContent-Type: application/octet-stream\r\nContent-Length: 5\r\n\r\n12345",
+        std.testing.allocator,
+    );
+    defer request.deinit();
+
+    try std.testing.expectEqualStrings("12345", request.body.?);
+}
+
+test "parse request line and headers" {
     var request = try Request.parse(
         "GET /echo/abc HTTP/1.1\r\nHost: localhost:4221\r\nUser-Agent: curl/7.64.1\r\nAccept: */*\r\n\r\n",
         std.testing.allocator,
