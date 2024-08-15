@@ -114,19 +114,20 @@ pub fn main() !void {
             };
 
             if (_context.capture_map.get("file")) |filename| {
-                if (_request.method == Http.Method.GET) {
-                    const buf = _allocator.alloc(u8, _context.file_directory.len + filename.len + 1) catch {
-                        response.setStatus(Http.Status.InternalServerError);
-                        response.setBody("Buffer allocation error") catch {};
-                        return response;
-                    };
-                    defer _allocator.free(buf);
-                    const path = std.fmt.bufPrint(buf, "{s}/{s}", .{_context.file_directory, filename}) catch {
-                        response.setStatus(Http.Status.InternalServerError);
-                        response.setBody("Error formatting file path") catch {};
-                        return response;
-                    };
 
+                const buf = _allocator.alloc(u8, _context.file_directory.len + filename.len + 1) catch {
+                    response.setStatus(Http.Status.InternalServerError);
+                    response.setBody("Buffer allocation error") catch {};
+                    return response;
+                };
+                defer _allocator.free(buf);
+                const path = std.fmt.bufPrint(buf, "{s}/{s}", .{_context.file_directory, filename}) catch {
+                    response.setStatus(Http.Status.InternalServerError);
+                    response.setBody("Error formatting file path") catch {};
+                    return response;
+                };
+
+                if (_request.method == Http.Method.GET) {
                     const options = std.fs.File.OpenFlags {
                         .mode = .read_only,
                         .lock = .none,
@@ -170,7 +171,40 @@ pub fn main() !void {
                     response.setStatus(Http.Status.OK);
                     return response;
                 } else if (_request.method == Http.Method.POST) {
+                    const flags = std.fs.File.CreateFlags {
+                        .lock = .none,
+                        .mode = std.fs.File.default_mode,
+                        .read = false,
+                        .truncate = true,
+                        .exclusive = true,
+                        .lock_nonblocking = false,
+                    };
+                    var file = std.fs.createFileAbsolute(path, flags) catch |err| switch (err) {
+                        std.fs.File.OpenError.PathAlreadyExists => {
+                            response.setStatus(Http.Status.Conflict);
+                            response.setBody("File already exists.") catch {};
+                            return response;
+                        },
+                        else => {
+                            response.setStatus(Http.Status.InternalServerError);
+                            response.setBody("Error creating file.") catch {};
+                            return response;
+                        },
+                    };
+                    defer file.close();
 
+                    if (_request.body) |body| {
+                        file.writeAll(body) catch {
+                            response.setStatus(Http.Status.InternalServerError);
+                            response.setBody("Error writing to file.") catch {};
+                            return response;
+                        };
+                        response.setStatus(Http.Status.Created);
+                    } else {
+                        response.setStatus(Http.Status.BadRequest);
+                        response.setBody("No contents in request body.") catch {};
+                    }
+                    return response;
                 }
             }
 

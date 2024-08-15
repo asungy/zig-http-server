@@ -33,21 +33,30 @@ pub const Version = enum {
 
 pub const Status = enum {
     OK,
+    Created,
+    BadRequest,
     NotFound,
+    Conflict,
     InternalServerError,
 
     pub fn code(self: Status) u16 {
         return switch (self) {
             Status.OK                  => 200,
+            Status.Created             => 201,
+            Status.BadRequest          => 400,
             Status.NotFound            => 404,
+            Status.Conflict            => 409,
             Status.InternalServerError => 500,
         };
     }
 
     pub fn toString(self: Status) []const u8 {
         return switch (self) {
-            Status.OK       => "OK",
-            Status.NotFound => "Not Found",
+            Status.OK                  => "OK",
+            Status.Created             => "Created",
+            Status.BadRequest          => "Bad Request",
+            Status.NotFound            => "Not Found",
+            Status.Conflict            => "Conflict",
             Status.InternalServerError => "Internal Server Error",
         };
     }
