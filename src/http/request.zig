@@ -45,9 +45,14 @@ pub fn parse(raw_request: []const u8, allocator: std.mem.Allocator) ParseError!R
         headers.put(key, value) catch return ParseError.AllocationError;
     }
 
-    // BUG: I should technically check the Content-Length header in the case
-    // where a CRLF is in the body, but nobody got time for that.
-    const body: ?[]const u8 = if (lines.next()) |b| b else null;
+    var body: ?[]const u8 = undefined;
+    if (lines.next()) |b| {
+        const content_length_string = headers.get("Content-Length") orelse return ParseError.MalformedRequest;
+        const content_length = std.fmt.parseInt(usize, content_length_string, 10) catch return ParseError.MalformedRequest;
+        body = b[0..content_length];
+    } else {
+        body = null;
+    }
 
     return Request {
         .method = method orelse return ParseError.NoMethod,
