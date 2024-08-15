@@ -6,16 +6,22 @@ const Request = @import("http/request.zig").Request;
 const Response = @import("http/response.zig").Response;
 
 pub const Context = struct {
+    address: []const u8,
+    port: u16,
     capture_map: std.StringHashMap([]const u8),
     file_directory: []const u8,
     exit_flag: *bool,
 
     fn init(option: struct {
+        address: []const u8,
+        port: u16,
         capture_map: std.StringHashMap([]const u8),
         file_directory: []const u8,
         exit_flag: *bool,
     }) Context {
         return Context {
+            .address = option.address,
+            .port = option.port,
             .capture_map = option.capture_map,
             .file_directory = option.file_directory,
             .exit_flag = option.exit_flag,
@@ -297,11 +303,15 @@ pub const Router = struct {
     default_response: Response,
     file_directory: []const u8,
     exit_flag: *bool,
+    address: []const u8,
+    port: u16,
 
     pub fn init(option: struct {
         file_directory: []const u8,
         allocator: Allocator,
         exit_flag: *bool,
+        address: []const u8,
+        port: u16,
     }) !Router {
         var default_response = Response.init(option.allocator);
         try default_response.setContentType(Http.ContentType.TextPlain);
@@ -312,6 +322,8 @@ pub const Router = struct {
             .default_response = default_response,
             .file_directory = std.mem.trimRight(u8, option.file_directory, "/"),
             .exit_flag = option.exit_flag,
+            .address = option.address,
+            .port = option.port,
         };
     }
 
@@ -330,6 +342,8 @@ pub const Router = struct {
                 .capture_map = match.capture_map,
                 .file_directory = self.file_directory,
                 .exit_flag = self.exit_flag,
+                .address = self.address,
+                .port = self.port,
             });
             defer context.deinit();
 

@@ -40,6 +40,8 @@ pub fn init(option: Option) !Server {
             .file_directory = option.directory,
             .allocator = option.allocator,
             .exit_flag = exit_flag,
+            .address = option.address,
+            .port = option.port,
         }),
         .pool = pool,
         .exit_flag = exit_flag,
@@ -62,9 +64,20 @@ pub fn addRoute(self: *Server, path: []const u8, handler: RouteHandler) Allocato
 pub fn run(self: *Server) !void {
     std.debug.print("Listening on {s}:{d}\n", .{self.address, self.port});
 
-    while (!@atomicLoad(bool, self.exit_flag, std.builtin.AtomicOrder.unordered)) {
+    while (true) {
         const conn = try self.allocator.create(std.net.Server.Connection);
         conn.* = try self.server.accept();
+
+        // HACK: "Graceful" shutdown.
+        //
+        // Expects separate thread to atomically set the exit flag to `true`
+        // and then establish a trivial connection to unblock the `accept`
+        // call.
+        if (@atomicLoad(bool, self.exit_flag, std.builtin.AtomicOrder.unordered)) {
+            conn.stream.close();
+            self.allocator.destroy(conn);
+            break;
+        }
         try self.pool.spawn(connectionHandler, .{conn, self.router, self.allocator});
     }
 }

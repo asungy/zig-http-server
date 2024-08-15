@@ -43,10 +43,25 @@ pub fn main() !void {
 
     try server.addRoute("/exit", struct {
         fn f(_context: Context, _: Request, _allocator: std.mem.Allocator) Response {
-            @atomicStore(bool, _context.exit_flag, true, std.builtin.AtomicOrder.unordered);
             var response = Response.init(_allocator);
             response.setStatus(Http.Status.OK);
-            response.setContentType(Http.ContentType.TextPlain) catch return response;
+            response.setContentType(Http.ContentType.TextPlain) catch {
+                response.setStatus(Http.Status.InternalServerError);
+                response.setBody("Error setting content type.") catch {};
+                return response;
+            };
+
+            @atomicStore(bool, _context.exit_flag, true, std.builtin.AtomicOrder.unordered);
+            var client = std.http.Client{ .allocator = _allocator };
+            var conn = client.connect(_context.address, _context.port, std.http.Client.Connection.Protocol.plain) catch {
+                response.setStatus(Http.Status.InternalServerError);
+                response.setBody("Error creating client connection.") catch {};
+                return response;
+            };
+            conn.closing = true;
+            client.connection_pool.release(_allocator, conn);
+            client.deinit();
+
             return response;
         }
     }.f);
