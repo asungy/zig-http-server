@@ -107,6 +107,10 @@ fn connectionHandler(conn: *std.net.Server.Connection, router: Router, allocator
     };
     defer response.deinit();
 
+    handleCompression(request, &response) catch {
+        std.debug.print("Error handling compression.", .{});
+    };
+
     sendResponse(&response, conn, allocator) catch {
         std.debug.print("Error sending response.", .{});
         return;
@@ -114,4 +118,12 @@ fn connectionHandler(conn: *std.net.Server.Connection, router: Router, allocator
 
     conn.stream.close();
     allocator.destroy(conn);
+}
+
+fn handleCompression(request: Request, response: *Response) !void {
+    if (request.headers.get("Accept-Encoding")) |encoding| {
+        if (std.mem.eql(u8, encoding, "gzip")) {
+            try response.headers.put("Content-Encoding", "gzip");
+        }
+    }
 }
