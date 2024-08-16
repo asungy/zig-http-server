@@ -121,9 +121,13 @@ fn connectionHandler(conn: *std.net.Server.Connection, router: Router, allocator
 }
 
 fn handleCompression(request: Request, response: *Response) !void {
-    if (request.headers.get("Accept-Encoding")) |encoding| {
-        if (std.mem.eql(u8, encoding, "gzip")) {
-            try response.headers.put("Content-Encoding", "gzip");
+    if (request.headers.get("Accept-Encoding")) |encodings| {
+        var it = std.mem.split(u8, encodings, ", ");
+        while (it.next()) |encoding| {
+            if (std.mem.eql(u8, encoding, "gzip")) {
+                try response.headers.put("Content-Encoding", "gzip");
+                return;
+            }
         }
     }
 }
